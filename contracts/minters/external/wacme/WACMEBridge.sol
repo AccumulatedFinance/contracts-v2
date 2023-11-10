@@ -6,6 +6,10 @@ interface IERC20 {
 }
 
 contract WACMEBridge {
+
+    constructor() {
+    }
+
     function burn(IERC20 token, string memory destination, uint256 amount) public {
         // Ensure the sender has approved this contract to spend the specified amount of the token
         require(token.transferFrom(msg.sender, address(this), amount), "Transfer failed");
