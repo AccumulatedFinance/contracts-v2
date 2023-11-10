@@ -253,11 +253,11 @@ abstract contract Minter is Ownable, ReentrancyGuard {
         emit Deposit(address(msg.sender), amount);
     }
 
-    function withdraw(uint256 amount) public virtual nonReentrant {
+    function withdraw() public virtual nonReentrant {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         require(availableBalance > 0, "No available balance to withdraw");
-        baseToken.safeTransferFrom(address(this), stakingManager, amount);
-        emit Withdraw(amount);
+        baseToken.safeTransferFrom(address(this), stakingManager, availableBalance);
+        emit Withdraw(availableBalance);
     }
 
 }
