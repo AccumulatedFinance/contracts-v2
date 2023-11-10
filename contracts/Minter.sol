@@ -3,6 +3,7 @@ pragma solidity ^0.8.4;
 
 // ERC20 interface
 interface IERC20 {
+    function balanceOf(address account) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
     function mint(address to, uint256 amount) external;
     function transferOwnership(address newOwner) external;
@@ -221,12 +222,14 @@ abstract contract Minter is Ownable, ReentrancyGuard {
     IERC20 public stakingToken;
 
     // Staking manager
-    address public immutable stakingManager;
+    address public stakingManager;
 
     constructor(address _baseToken, address _stakingToken, address _stakingManager) {
         baseToken = IERC20(_baseToken);
         stakingToken = IERC20(_stakingToken);
         stakingManager = _stakingManager;
+        // this contract can spend baseToken
+        baseToken.approve(address(this), type(uint256).max);
     }
 
     event TransferStakingTokenOwnership(address indexed _newOwner);
@@ -246,10 +249,13 @@ abstract contract Minter is Ownable, ReentrancyGuard {
 
     function deposit(uint256 amount) public virtual nonReentrant {
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
+        mint(address(msg.sender), amount);
         emit Deposit(address(msg.sender), amount);
     }
 
     function withdraw(uint256 amount) public virtual nonReentrant {
+        uint256 availableBalance = baseToken.balanceOf(address(this));
+        require(availableBalance > 0, "No available balance to withdraw");
         baseToken.safeTransferFrom(address(this), stakingManager, amount);
         emit Withdraw(amount);
     }
