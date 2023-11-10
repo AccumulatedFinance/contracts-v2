@@ -18,7 +18,7 @@ contract stACMEMinter is Minter {
     // Staking account on Accumulate
     string public stakingAccount;
 
-    constructor(address _baseToken, address _stakingToken, address _bridge, string memory _stakingAccount) Minter(_baseToken, _stakingToken, address(this)) {
+    constructor(address _baseToken, address _stakingToken, address _bridge, string memory _stakingAccount) Minter(_baseToken, _stakingToken, address(msg.sender)) {
         bridge = IWACMEBridge(_bridge);
         stakingAccount = _stakingAccount;
         // bridge can spend baseToken
