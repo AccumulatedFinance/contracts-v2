@@ -5,7 +5,7 @@ import "../Minter.sol";
 
 contract stVLXMinter is Minter {
 
-    constructor(address _baseToken, address _stakingToken) Minter(_baseToken, _stakingToken, address(this)) {
+    constructor(address _baseToken, address _stakingToken, address _stakingManager) Minter(_baseToken, _stakingToken, _stakingManager) {
     }
 
 }
