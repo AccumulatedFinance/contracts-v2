@@ -316,7 +316,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
 }
 
 // NativeMinter contract accepts network coin as a base token for liquid staking
-abstract contract NativeMinter is BaseMinter {
+contract NativeMinter is BaseMinter {
 
     constructor(address _stakingToken, address _stakingManager) BaseMinter(_stakingToken, _stakingManager) {
     }
@@ -341,7 +341,7 @@ abstract contract NativeMinter is BaseMinter {
 }
 
 // ERC20Minter contract accepts ERC20 token as a base token for liduid staking
-abstract contract ERC20Minter is BaseMinter {
+contract ERC20Minter is BaseMinter {
 
     using SafeTransferLib for IERC20;
 
