@@ -333,8 +333,7 @@ contract NativeMinter is BaseMinter {
     function withdraw() public virtual nonReentrant {
         uint256 availableBalance = address(this).balance;
         require(availableBalance > 0, "No available balance to withdraw");
-        (bool success, ) = stakingManager.call{value: availableBalance}("");
-        require(success, "Withdrawal failed");
+        SafeTransferLib.safeTransferETH(stakingManager, availableBalance);
         emit Withdraw(availableBalance);
     }
 
