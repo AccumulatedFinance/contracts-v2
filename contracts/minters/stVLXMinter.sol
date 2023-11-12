@@ -3,9 +3,9 @@ pragma solidity ^0.8.4;
 
 import "../Minter.sol";
 
-contract stVLXMinter is Minter {
+contract stVLXMinter is NativeMinter {
 
-    constructor(address _baseToken, address _stakingToken, address _stakingManager) Minter(_baseToken, _stakingToken, _stakingManager) {
+    constructor(address _stakingToken, address _stakingManager) NativeMinter(_stakingToken, _stakingManager) {
     }
 
 }

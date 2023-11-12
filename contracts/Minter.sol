@@ -210,13 +210,8 @@ abstract contract Ownable {
     }
 }
 
-// Minter contract
-abstract contract Minter is Ownable, ReentrancyGuard {
-
-    using SafeTransferLib for IERC20;
-
-    // Base token
-    IERC20 public baseToken;
+// BaseMinter
+abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
     // Staking token
     IERC20 public stakingToken;
@@ -224,18 +219,13 @@ abstract contract Minter is Ownable, ReentrancyGuard {
     // Staking manager
     address public stakingManager;
 
-    constructor(address _baseToken, address _stakingToken, address _stakingManager) {
-        baseToken = IERC20(_baseToken);
+    constructor(address _stakingToken, address _stakingManager) {
         stakingToken = IERC20(_stakingToken);
         stakingManager = _stakingManager;
-        // this contract can spend baseToken
-        baseToken.approve(address(this), type(uint256).max);
     }
 
     event TransferStakingTokenOwnership(address indexed _newOwner);
     event Mint(address indexed to, uint256 amount);
-    event Deposit(address indexed from, uint256 amount);
-    event Withdraw(uint256 amount);
 
     function transferStakingTokenOwnership(address newOwner) public onlyOwner {
         stakingToken.transferOwnership(newOwner);
@@ -247,7 +237,52 @@ abstract contract Minter is Ownable, ReentrancyGuard {
         emit Mint(to, amount);
     }
 
+}
+
+// NativeMinter contract accepts network coin as a base token for liquid staking
+abstract contract NativeMinter is BaseMinter {
+
+    constructor(address _stakingToken, address _stakingManager) BaseMinter(_stakingToken, _stakingManager) {
+    }
+
+    event Deposit(address indexed from, uint256 amount);
+    event Withdraw(uint256 amount);
+
+    function deposit() public payable virtual nonReentrant {
+        require(msg.value > 0, "Deposit amount must be greater than 0");
+        mint(address(msg.sender), msg.value);
+        emit Deposit(address(msg.sender), msg.value);
+    }
+
+    function withdraw() public virtual nonReentrant {
+        uint256 availableBalance = address(this).balance;
+        require(availableBalance > 0, "No available balance to withdraw");
+        (bool success, ) = stakingManager.call{value: availableBalance}("");
+        require(success, "Withdrawal failed");
+        emit Withdraw(availableBalance);
+    }
+
+}
+
+// ERC20Minter contract accepts ERC20 token as a base token for liduid staking
+abstract contract ERC20Minter is BaseMinter {
+
+    using SafeTransferLib for IERC20;
+
+    // Base token
+    IERC20 public baseToken;
+
+    constructor(address _baseToken, address _stakingToken, address _stakingManager) BaseMinter(_stakingToken, _stakingManager) {
+        baseToken = IERC20(_baseToken);
+        // this contract can spend baseToken
+        baseToken.approve(address(this), type(uint256).max);
+    }
+
+    event Deposit(address indexed from, uint256 amount);
+    event Withdraw(uint256 amount);
+
     function deposit(uint256 amount) public virtual nonReentrant {
+        require(amount > 0, "Deposit amount must be greater than 0");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
         mint(address(msg.sender), amount);
         emit Deposit(address(msg.sender), amount);
