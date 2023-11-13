@@ -36,8 +36,8 @@ contract stACMEMinter is ERC20Minter {
         require(amount > 0, "Deposit amount must be greater than 0");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
         bridge.burn(address(baseToken), stakingAccount, amount);
-        stakingToken.mint(address(receiver), amount);
-        emit Deposit(address(msg.sender), address(receiver), amount);
+        stakingToken.mint(receiver, amount);
+        emit Deposit(address(msg.sender), receiver, amount);
     }
 
 }

@@ -322,7 +322,7 @@ contract NativeMinter is BaseMinter {
 
     function deposit(address receiver) public payable virtual nonReentrant {
         require(msg.value > 0, "Deposit amount must be greater than 0");
-        stakingToken.mint(address(receiver), msg.value);
+        stakingToken.mint(receiver, msg.value);
         emit Deposit(address(msg.sender), receiver, msg.value);
     }
 
@@ -355,8 +355,8 @@ contract ERC20Minter is BaseMinter {
     function deposit(uint256 amount, address receiver) public nonReentrant {
         require(amount > 0, "Deposit amount must be greater than 0");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
-        stakingToken.mint(address(receiver), amount);
-        emit Deposit(address(msg.sender), address(receiver), amount);
+        stakingToken.mint(receiver, amount);
+        emit Deposit(address(msg.sender), receiver, amount);
     }
 
     function withdraw(address receiver) public onlyOwner {
