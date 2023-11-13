@@ -234,7 +234,7 @@ contract ProxyDeposit {
     }
 
     function erc20Deposit(uint256 amount, address receiver) external {
-        Address.functionCall(nativeMinter, abi.encodeWithSignature("deposit(uint256,address)", amount, receiver));
+        Address.functionCall(erc20Minter, abi.encodeWithSignature("deposit(uint256,address)", amount, receiver));
     }
 
 }
