@@ -301,16 +301,16 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     }
 
     event TransferStakingTokenOwnership(address indexed _newOwner);
-    event Mint(address indexed to, uint256 amount);
+    event Mint(address indexed caller, address indexed receiver, uint256 amount);
 
     function transferStakingTokenOwnership(address newOwner) public onlyOwner {
         stakingToken.transferOwnership(newOwner);
         emit TransferStakingTokenOwnership(newOwner);
     }
 
-    function mint(address to, uint256 amount) public onlyOwner {
-        stakingToken.mint(to, amount);
-        emit Mint(to, amount);
+    function mint(uint256 amount, address receiver) public onlyOwner {
+        stakingToken.mint(receiver, amount);
+        emit Mint(address(msg.sender), receiver, amount);
     }
 
 }
@@ -321,20 +321,20 @@ contract NativeMinter is BaseMinter {
     constructor(address _stakingToken, address _stakingManager) BaseMinter(_stakingToken, _stakingManager) {
     }
 
-    event Deposit(address indexed from, uint256 amount);
-    event Withdraw(uint256 amount);
+    event Deposit(address indexed caller, address indexed receiver, uint256 amount);
+    event Claim(address indexed caller, uint256 amount);
 
-    function deposit() public payable virtual nonReentrant {
+    function deposit(address receiver) public payable virtual nonReentrant {
         require(msg.value > 0, "Deposit amount must be greater than 0");
-        mint(address(msg.sender), msg.value);
-        emit Deposit(address(msg.sender), msg.value);
+        stakingToken.mint(address(receiver), msg.value);
+        emit Deposit(address(msg.sender), address(receiver), msg.value);
     }
 
-    function withdraw() public virtual nonReentrant {
+    function claim() public virtual nonReentrant {
         uint256 availableBalance = address(this).balance;
-        require(availableBalance > 0, "No available balance to withdraw");
+        require(availableBalance > 0, "No available balance to claim");
         SafeTransferLib.safeTransferETH(stakingManager, availableBalance);
-        emit Withdraw(availableBalance);
+        emit Claim(address(msg.sender), availableBalance);
     }
 
 }
@@ -353,21 +353,21 @@ contract ERC20Minter is BaseMinter {
         baseToken.approve(address(this), type(uint256).max);
     }
 
-    event Deposit(address indexed from, uint256 amount);
-    event Withdraw(uint256 amount);
+    event Deposit(address indexed caller, address indexed receiver, uint256 amount);
+    event Claim(address indexed caller, uint256 amount);
 
-    function deposit(uint256 amount) public virtual nonReentrant {
+    function deposit(uint256 amount, address receiver) public virtual nonReentrant {
         require(amount > 0, "Deposit amount must be greater than 0");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
-        mint(address(msg.sender), amount);
-        emit Deposit(address(msg.sender), amount);
+        stakingToken.mint(address(receiver), amount);
+        emit Deposit(address(msg.sender), address(receiver), amount);
     }
 
-    function withdraw() public virtual nonReentrant {
+    function claim() public virtual nonReentrant {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         require(availableBalance > 0, "No available balance to withdraw");
         baseToken.safeTransferFrom(address(this), stakingManager, availableBalance);
-        emit Withdraw(availableBalance);
+        emit Claim(address(msg.sender), availableBalance);
     }
 
 }

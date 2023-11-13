@@ -32,12 +32,11 @@ contract stACMEMinter is ERC20Minter {
         emit UpdateStakingAccount(newStakingAccount);
     }
 
-    function deposit(uint256 amount) public override nonReentrant {
+    function deposit(uint256 amount, address receiver) public override nonReentrant {
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
         bridge.burn(address(baseToken), stakingAccount, amount);
-        mint(address(msg.sender), amount);
-        emit Deposit(address(msg.sender), amount);
+        stakingToken.mint(address(receiver), amount);
+        emit Deposit(address(msg.sender), address(receiver), amount);
     }
-    
 
 }
