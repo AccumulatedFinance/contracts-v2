@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+// ERC20 interface
+interface IERC20 {
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+}
+
+// ERC20 interface
+interface IERC20Minter {
+    function deposit(uint256 amount, address receiver) external;
+}
+
 /**
  * @dev Collection of functions related to the address type
  */
@@ -222,11 +233,15 @@ library Address {
 contract ProxyDeposit {
     
     address public nativeMinter;
-    address public erc20Minter;
+    IERC20Minter public erc20Minter;
+    IERC20 public baseToken;
 
-    constructor(address _nativeMinter, address _erc20Minter) {
+    constructor(address _nativeMinter, address _erc20Minter, address _baseToken) {
         nativeMinter = _nativeMinter;
-        erc20Minter = _erc20Minter;
+        erc20Minter = IERC20Minter(_erc20Minter);
+        baseToken = IERC20(_baseToken);
+        // erc20minter can spend baseToken
+        baseToken.approve(_erc20Minter, type(uint256).max);
     }
 
     function nativeDeposit(address receiver) external payable {
@@ -234,7 +249,9 @@ contract ProxyDeposit {
     }
 
     function erc20Deposit(uint256 amount, address receiver) external {
-        Address.functionCall(erc20Minter, abi.encodeWithSignature("deposit(uint256,address)", amount, receiver));
+        // test contract, so not using safeTransferLib
+        baseToken.transferFrom(address(msg.sender), address(this), amount);
+        erc20Minter.deposit(amount, address(receiver));
     }
 
 }
