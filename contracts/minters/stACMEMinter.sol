@@ -18,7 +18,7 @@ contract stACMEMinter is ERC20Minter {
     // Staking account on Accumulate
     string public stakingAccount;
 
-    constructor(address _baseToken, address _stakingToken, address _bridge, string memory _stakingAccount) ERC20Minter(_baseToken, _stakingToken, address(msg.sender)) {
+    constructor(address _baseToken, address _stakingToken, address _bridge, string memory _stakingAccount) ERC20Minter(_baseToken, _stakingToken) {
         bridge = IWACMEBridge(_bridge);
         stakingAccount = _stakingAccount;
         // bridge can spend baseToken

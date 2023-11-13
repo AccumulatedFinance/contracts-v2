@@ -292,12 +292,8 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     // Staking token
     IERC20 public stakingToken;
 
-    // Staking manager
-    address public stakingManager;
-
-    constructor(address _stakingToken, address _stakingManager) {
+    constructor(address _stakingToken) {
         stakingToken = IERC20(_stakingToken);
-        stakingManager = _stakingManager;
     }
 
     event TransferStakingTokenOwnership(address indexed _newOwner);
@@ -318,23 +314,23 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
 // NativeMinter contract accepts network coin as a base token for liquid staking
 contract NativeMinter is BaseMinter {
 
-    constructor(address _stakingToken, address _stakingManager) BaseMinter(_stakingToken, _stakingManager) {
+    constructor(address _stakingToken) BaseMinter(_stakingToken) {
     }
 
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
-    event Claim(address indexed caller, uint256 amount);
+    event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
     function deposit(address receiver) public payable virtual nonReentrant {
         require(msg.value > 0, "Deposit amount must be greater than 0");
         stakingToken.mint(address(receiver), msg.value);
-        emit Deposit(address(msg.sender), address(receiver), msg.value);
+        emit Deposit(address(msg.sender), receiver, msg.value);
     }
 
-    function claim() public virtual nonReentrant {
+    function withdraw(address receiver) public onlyOwner {
         uint256 availableBalance = address(this).balance;
-        require(availableBalance > 0, "No available balance to claim");
-        SafeTransferLib.safeTransferETH(stakingManager, availableBalance);
-        emit Claim(address(msg.sender), availableBalance);
+        require(availableBalance > 0, "No available balance to withdraw");
+        SafeTransferLib.safeTransferETH(receiver, availableBalance);
+        emit Withdraw(address(msg.sender), receiver, availableBalance);
     }
 
 }
@@ -347,27 +343,27 @@ contract ERC20Minter is BaseMinter {
     // Base token
     IERC20 public baseToken;
 
-    constructor(address _baseToken, address _stakingToken, address _stakingManager) BaseMinter(_stakingToken, _stakingManager) {
+    constructor(address _baseToken, address _stakingToken) BaseMinter(_stakingToken) {
         baseToken = IERC20(_baseToken);
         // this contract can spend baseToken
         baseToken.approve(address(this), type(uint256).max);
     }
 
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
-    event Claim(address indexed caller, uint256 amount);
+    event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
-    function deposit(uint256 amount, address receiver) public virtual nonReentrant {
+    function deposit(uint256 amount, address receiver) public nonReentrant {
         require(amount > 0, "Deposit amount must be greater than 0");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
         stakingToken.mint(address(receiver), amount);
         emit Deposit(address(msg.sender), address(receiver), amount);
     }
 
-    function claim() public virtual nonReentrant {
+    function withdraw(address receiver) public onlyOwner {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         require(availableBalance > 0, "No available balance to withdraw");
-        baseToken.safeTransferFrom(address(this), stakingManager, availableBalance);
-        emit Claim(address(msg.sender), availableBalance);
+        baseToken.safeTransferFrom(address(this), receiver, availableBalance);
+        emit Withdraw(address(msg.sender), receiver, availableBalance);
     }
 
 }

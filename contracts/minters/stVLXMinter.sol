@@ -5,7 +5,7 @@ import "../Minter.sol";
 
 contract stVLXMinter is NativeMinter {
 
-    constructor(address _stakingToken, address _stakingManager) NativeMinter(_stakingToken, _stakingManager) {
+    constructor(address _stakingToken) NativeMinter(_stakingToken) {
     }
 
 }
