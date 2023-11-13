@@ -33,6 +33,7 @@ contract stACMEMinter is ERC20Minter {
     }
 
     function deposit(uint256 amount, address receiver) public override nonReentrant {
+        require(amount > 0, "Deposit amount must be greater than 0");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
         bridge.burn(address(baseToken), stakingAccount, amount);
         stakingToken.mint(address(receiver), amount);
