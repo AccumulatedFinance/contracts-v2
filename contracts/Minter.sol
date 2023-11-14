@@ -9,6 +9,52 @@ interface IERC20 {
     function transferOwnership(address newOwner) external;
 }
 
+/**
+ * @title SafeMath
+ * @dev Math operations with safety checks that throw on error
+ */
+library SafeMath {
+
+  /**
+  * @dev Multiplies two numbers, throws on overflow.
+  */
+  function mul(uint256 a, uint256 b) internal pure returns (uint256 c) {
+    if (a == 0) {
+      return 0;
+    }
+    c = a * b;
+    assert(c / a == b);
+    return c;
+  }
+
+  /**
+  * @dev Integer division of two numbers, truncating the quotient.
+  */
+  function div(uint256 a, uint256 b) internal pure returns (uint256) {
+    // assert(b > 0); // Solidity automatically throws when dividing by 0
+    // uint256 c = a / b;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return a / b;
+  }
+
+  /**
+  * @dev Subtracts two numbers, throws on overflow (i.e. if subtrahend is greater than minuend).
+  */
+  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  /**
+  * @dev Adds two numbers, throws on overflow.
+  */
+  function add(uint256 a, uint256 b) internal pure returns (uint256 c) {
+    c = a + b;
+    assert(c >= a);
+    return c;
+  }
+}
+
 /// @notice Safe ETH and ERC20 transfer library that gracefully handles missing return values.
 /// @author Solmate (https://github.com/transmissions11/solmate/blob/main/src/utils/SafeTransferLib.sol)
 /// @dev Use with caution! Some functions in this library knowingly create dirty bits at the destination of the free memory pointer.
@@ -289,6 +335,12 @@ abstract contract Ownable is Context {
 // BaseMinter
 abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
+    using SafeMath for uint256;
+
+    uint256 public depositFee = 0; // possible fee to cover bridging costs
+    uint256 public constant MAX_DEPOSIT_FEE = 500; // max deposit fee 500bp (5%)
+    uint256 public constant FEE_DENOMINATOR = 10000; // fee denominator for basis points
+
     // Staking token
     IERC20 public stakingToken;
 
@@ -296,8 +348,21 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
         stakingToken = IERC20(_stakingToken);
     }
 
+    event UpdateDepositFee(uint256 _depositFee);
     event TransferStakingTokenOwnership(address indexed _newOwner);
     event Mint(address indexed caller, address indexed receiver, uint256 amount);
+
+    function previewDeposit(uint256 amount) public view virtual returns (uint256) {
+        uint256 feeAmount = amount.mul(depositFee).div(FEE_DENOMINATOR);
+        uint256 netAmount = amount.sub(feeAmount);
+        return netAmount;
+    }
+
+    function updateDepositFee(uint256 newFee) public onlyOwner {
+        require(newFee <= MAX_DEPOSIT_FEE, ">MaxFee");
+        depositFee = newFee;
+        emit UpdateDepositFee(newFee);
+    }
 
     function transferStakingTokenOwnership(address newOwner) public onlyOwner {
         stakingToken.transferOwnership(newOwner);
@@ -321,14 +386,16 @@ contract NativeMinter is BaseMinter {
     event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
     function deposit(address receiver) public payable virtual nonReentrant {
-        require(msg.value > 0, "Deposit amount must be greater than 0");
-        stakingToken.mint(receiver, msg.value);
+        require(msg.value > 0, "ZeroDeposit");
+        uint256 mintAmount = previewDeposit(msg.value);
+        require(mintAmount > 0, "ZeroMintAmount");
+        stakingToken.mint(receiver, mintAmount);
         emit Deposit(address(msg.sender), receiver, msg.value);
     }
 
     function withdraw(address receiver) public onlyOwner {
         uint256 availableBalance = address(this).balance;
-        require(availableBalance > 0, "No available balance to withdraw");
+        require(availableBalance > 0, "ZeroWithdraw");
         SafeTransferLib.safeTransferETH(receiver, availableBalance);
         emit Withdraw(address(msg.sender), receiver, availableBalance);
     }
@@ -353,15 +420,17 @@ contract ERC20Minter is BaseMinter {
     event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
     function deposit(uint256 amount, address receiver) public nonReentrant {
-        require(amount > 0, "Deposit amount must be greater than 0");
+        require(amount > 0, "ZeroDeposit");
+        uint256 mintAmount = previewDeposit(amount);
+        require(mintAmount > 0, "ZeroMintAmount");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
-        stakingToken.mint(receiver, amount);
+        stakingToken.mint(receiver, mintAmount);
         emit Deposit(address(msg.sender), receiver, amount);
     }
 
     function withdraw(address receiver) public onlyOwner {
         uint256 availableBalance = baseToken.balanceOf(address(this));
-        require(availableBalance > 0, "No available balance to withdraw");
+        require(availableBalance > 0, "ZeroWithdraw");
         baseToken.safeTransferFrom(address(this), receiver, availableBalance);
         emit Withdraw(address(msg.sender), receiver, availableBalance);
     }
