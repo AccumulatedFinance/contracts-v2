@@ -419,7 +419,7 @@ contract ERC20Minter is BaseMinter {
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
     event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
-    function deposit(uint256 amount, address receiver) public nonReentrant {
+    function deposit(uint256 amount, address receiver) public virtual nonReentrant {
         require(amount > 0, "ZeroDeposit");
         uint256 mintAmount = previewDeposit(amount);
         require(mintAmount > 0, "ZeroMintAmount");
