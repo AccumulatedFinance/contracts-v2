@@ -28,11 +28,11 @@ contract stVLXMinterBSC is ERC20Minter {
         baseToken.approve(_baseToken, type(uint256).max);
     }
 
-    event UpdateBridgeDestination(address _destination);
+    event UpdateDestination(address _destination);
 
-    function updateBridgeDestination(address newDestination) public onlyOwner {
+    function updateDestination(address newDestination) public onlyOwner {
         destination = newDestination;
-        emit UpdateBridgeDestination(newDestination);
+        emit UpdateDestination(newDestination);
     }
 
     function deposit(uint256 amount, address receiver) public override nonReentrant {
