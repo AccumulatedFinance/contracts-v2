@@ -24,8 +24,8 @@ contract stVLXMinterBSC is ERC20Minter {
         baseTokenERC677 = IERC677(_baseToken);
         bridge = _bridge;
         destination = _destination;
-        // baseToken can spend its tokens
-        baseToken.approve(_baseToken, type(uint256).max);
+        // bridge can spend baseToken
+        baseToken.approve(_bridge, type(uint256).max);
     }
 
     event UpdateDestination(address _destination);
