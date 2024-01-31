@@ -27,7 +27,7 @@ interface IZetaConnector {
     function send(IZetaInterfaces.SendInput calldata input) external;
 }
 
-contract stZETAMinterBSC is ERC20Minter {
+contract stZETAMinterERC20 is ERC20Minter {
 
     using SafeTransferLib for IERC20;
 
@@ -57,7 +57,7 @@ contract stZETAMinterBSC is ERC20Minter {
         require(mintAmount > 0, "ZeroMintAmount");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
         IZetaInterfaces.SendInput memory sendInput = IZetaInterfaces.SendInput({
-            destinationChainId: 7001,
+            destinationChainId: 7000,
             destinationAddress: abi.encodePacked(destination),
             destinationGasLimit: 5000000,
             message: abi.encodePacked(""),
