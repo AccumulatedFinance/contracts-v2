@@ -5,7 +5,8 @@ pragma solidity ^0.8.4;
 interface IERC20 {
     function balanceOf(address account) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
-    function mint(address to, uint256 amount) external;
+    function mint(address to, uint256 amount) external;  
+    function burn(uint256 amount) external; 
     function transferOwnership(address newOwner) external;
 }
 
@@ -393,7 +394,7 @@ contract NativeMinter is BaseMinter {
         emit Deposit(address(msg.sender), receiver, msg.value);
     }
 
-    function withdraw(address receiver) public onlyOwner {
+    function withdraw(address receiver) public virtual onlyOwner {
         uint256 availableBalance = address(this).balance;
         require(availableBalance > 0, "ZeroWithdraw");
         SafeTransferLib.safeTransferETH(receiver, availableBalance);

@@ -138,12 +138,31 @@ library Subcall {
 
 contract stROSEMinter is NativeMinter {
 
+    using SafeMath for uint256;
+    using SafeTransferLib for IERC20;
+
     constructor(address _stakingToken) NativeMinter(_stakingToken) {
     }
 
-    event UpdateStakingAccount(bytes21 _stakingAccount);
+    uint256 public redeemFee = 0; // possible fee to cover bridging costs
+    uint256 public constant MAX_REDEEM_FEE = 500; // max redeem fee 500bp (5%)
+
+    event UpdateRedeemFee(uint256 _redeemFee);
     event Delegate(bytes21 _to, uint128 _amount);
     event Undelegate(bytes21 _from, uint128 _shares);
+    event Redeem(address indexed caller, address indexed receiver, uint256 amount);
+
+    function previewRedeem(uint256 amount) public view virtual returns (uint256) {
+        uint256 feeAmount = amount.mul(redeemFee).div(FEE_DENOMINATOR);
+        uint256 netAmount = amount.sub(feeAmount);
+        return netAmount;
+    }
+
+    function updateRedeemFee(uint256 newFee) public onlyOwner {
+        require(newFee <= MAX_DEPOSIT_FEE, ">MaxFee");
+        redeemFee = newFee;
+        emit UpdateRedeemFee(newFee);
+    }
 
     function delegate(bytes21 to, uint128 amount) public onlyOwner {
         require(amount > 0, "ZeroDelegate");
@@ -155,6 +174,20 @@ contract stROSEMinter is NativeMinter {
         require(shares > 0, "ZeroUndelegate");
         Subcall.consensusUndelegate(from, shares);
         emit Undelegate(from, shares);
+    }
+
+    function redeem(uint256 amount, address receiver) public virtual nonReentrant {
+        require(amount > 0, "ZeroRedeem");
+        uint256 redeemAmount = previewRedeem(amount);
+        require(redeemAmount > 0, "ZeroRedeemAmount");
+        stakingToken.safeTransferFrom(address(msg.sender), address(this), amount);
+        stakingToken.burn(amount);
+        SafeTransferLib.safeTransferETH(receiver, redeemAmount);
+        emit Redeem(address(msg.sender), receiver, amount);
+    }
+
+    function withdraw(address receiver) public view onlyOwner override {
+        revert(string(abi.encodePacked("Withdraw function disabled for ", receiver)));
     }
 
 }
