@@ -8,7 +8,9 @@ import "../Minter.sol";
  * @notice Interact with Oasis Runtime SDK modules from Sapphire.
  */
 library Subcall {
-    string private constant CONSENSUS_WITHDRAW = "consensus.Withdraw";
+
+    string private constant CONSENSUS_DELEGATE = "consensus.Delegate";
+    string private constant CONSENSUS_UNDELEGATE = "consensus.Undelegate";
 
     /// Address of the SUBCALL precompile
     address internal constant SUBCALL =
@@ -17,8 +19,8 @@ library Subcall {
     /// Raised if the underlying subcall precompile does not succeed
     error SubcallError();
 
-    /// There was an error parsing the receipt
-    error ConsensusWithdrawError(uint64 status, string data);
+    error ConsensusUndelegateError(uint64 status, string data);
+    error ConsensusDelegateError(uint64 status, string data);
 
     /// Name of token cannot be CBOR encoded with current functions
     error TokenNameTooLong();
@@ -81,48 +83,78 @@ library Subcall {
     }
 
     /**
-     * @notice Transfer from an account in this runtime to a consensus staking
-     * account.
-     * @param to Consensus address which gets the tokens.
-     * @param value Token amount (in wei).
+     * @notice Start the undelegation process of the given number of shares from
+     * consensus staking account to runtime account.
+     * @param from Consensus address which shares were delegated to.
+     * @param shares Number of shares to withdraw back to us.
      */
-    function consensusWithdraw(bytes21 to, uint128 value) internal {
-        (uint64 status, bytes memory data) = _subcallWithToAndAmount(
-            CONSENSUS_WITHDRAW,
+    function consensusUndelegate(bytes21 from, uint128 shares) internal {
+        (uint64 status, bytes memory data) = subcall(
+            CONSENSUS_UNDELEGATE,
+            abi.encodePacked( // CBOR encoded, {'from': x, 'shares': y}
+                hex"a2", // map, 2 pairs
+                // pair 1
+                hex"64", // UTF-8 string, 4 bytes
+                "from",
+                hex"55", // 21 bytes
+                from,
+                // pair 2
+                hex"66", // UTF-8 string, 6 bytes
+                "shares",
+                hex"50", // 128bit unsigned int (16 bytes)
+                shares
+            )
+        );
+
+        if (status != 0) {
+            revert ConsensusUndelegateError(status, string(data));
+        }
+    }
+
+    /**
+     * @notice Delegate native token to consensus level.
+     * @param to Consensus address shares are delegated to.
+     * @param amount Native token amount (in wei).
+     */
+    function consensusDelegate(bytes21 to, uint128 amount)
+        internal
+        returns (bytes memory data)
+    {
+        uint64 status;
+
+        (status, data) = _subcallWithToAndAmount(
+            CONSENSUS_DELEGATE,
             to,
-            value,
+            amount,
             ""
         );
 
         if (status != 0) {
-            revert ConsensusWithdrawError(status, string(data));
+            revert ConsensusDelegateError(status, string(data));
         }
     }
+
 }
 
 contract stROSEMinter is NativeMinter {
-    
-    // Staking account on Oasis Consensus
-    bytes21 public stakingAccount;
 
-    constructor(address _stakingToken, bytes21 _stakingAccount) NativeMinter(_stakingToken) {
-        stakingAccount = _stakingAccount;
+    constructor(address _stakingToken) NativeMinter(_stakingToken) {
     }
 
     event UpdateStakingAccount(bytes21 _stakingAccount);
+    event Delegate(bytes21 _to, uint128 _amount);
+    event Undelegate(bytes21 _from, uint128 _shares);
 
-    function updateStakingAccount(bytes21 newStakingAccount) public onlyOwner {
-        stakingAccount = newStakingAccount;
-        emit UpdateStakingAccount(newStakingAccount);
+    function delegate(bytes21 to, uint128 amount) public onlyOwner {
+        require(amount > 0, "ZeroDelegate");
+        Subcall.consensusDelegate(to, amount);
+        emit Delegate(to, amount);
     }
 
-    function deposit(address receiver) public payable override nonReentrant {
-        require(msg.value > 0, "ZeroDeposit");
-        uint256 mintAmount = previewDeposit(msg.value);
-        require(mintAmount > 0, "ZeroMintAmount");
-        Subcall.consensusWithdraw(stakingAccount, uint128(msg.value));
-        stakingToken.mint(receiver, uint128(mintAmount));
-        emit Deposit(address(msg.sender), receiver, uint128(msg.value));
+    function undelegate(bytes21 from, uint128 shares) public onlyOwner {
+        require(shares > 0, "ZeroUndelegate");
+        Subcall.consensusUndelegate(from, shares);
+        emit Undelegate(from, shares);
     }
 
 }
