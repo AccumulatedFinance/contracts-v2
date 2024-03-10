@@ -176,7 +176,7 @@ contract stROSEMinter is NativeMinter {
         emit Undelegate(from, shares);
     }
 
-    function redeem(uint256 amount, address receiver) public virtual nonReentrant {
+    function redeem(uint256 amount, address receiver) public nonReentrant {
         require(amount > 0, "ZeroRedeem");
         uint256 redeemAmount = previewRedeem(amount);
         require(redeemAmount > 0, "ZeroRedeemAmount");
