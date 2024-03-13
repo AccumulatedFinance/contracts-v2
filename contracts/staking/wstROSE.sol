@@ -1051,11 +1051,11 @@ abstract contract ReentrancyGuard {
     Mint vs Deposit
     mint() - deposit targeting a specific number of wstToken out
     deposit() - deposit knowing a specific number of stToken in */
-contract wstToken is xERC4626, ReentrancyGuard {
+contract wstROSE is xERC4626, ReentrancyGuard {
 
     /* ========== CONSTRUCTOR ========== */
     constructor(ERC20 _underlying, uint32 _rewardsCycleLength)
-        ERC4626(_underlying, "Wrapped Staked Token", "wstToken")
+        ERC4626(_underlying, "Wrapped stROSE", "wstROSE")
         xERC4626(_rewardsCycleLength)
     {}
 
