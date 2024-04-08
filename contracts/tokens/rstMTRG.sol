@@ -713,7 +713,7 @@ abstract contract ERC20Pausable is ERC20, Pausable {
     }
 }
 
-contract afMTRG is ERC20, ERC20Burnable, Pausable, Ownable {
+contract rstMTRG is ERC20, ERC20Burnable, Pausable, Ownable {
     constructor(
         string memory name,
         string memory symbol,

@@ -429,7 +429,7 @@ contract ERC20Minter is BaseMinter {
         emit Deposit(address(msg.sender), receiver, amount);
     }
 
-    function withdraw(address receiver) public onlyOwner {
+    function withdraw(address receiver) public virtual onlyOwner {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         require(availableBalance > 0, "ZeroWithdraw");
         baseToken.safeTransferFrom(address(this), receiver, availableBalance);
