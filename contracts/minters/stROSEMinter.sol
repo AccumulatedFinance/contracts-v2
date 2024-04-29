@@ -1768,10 +1768,14 @@ contract stROSEMinter is NativeMinter {
     uint256 public constant MAX_REDEEM_FEE = 200; // max redeem fee 200bp (2%)
 
     uint64 private lastReceiptId; // Incremented counter to determine receipt IDs
+    
     mapping(uint64 => PendingDelegation) private pendingDelegations; // (receiptId => PendingDelegation)
     mapping(StakingAddress => Delegation) private delegations; // (to) => shares
     mapping(uint64 => PendingUndelegation) private pendingUndelegations; // (receiptId => PendingUndelegation)
-    mapping(uint64 => UndelegationPool) private undelegationPools; // (endReceiptId => UndelegationPool)
+
+    uint64[] private allPendingDelegationReceipts;
+    StakingAddress[] private allDelegationAddresses;
+    uint64[] private allPendingUndelegationReceipts;
 
     constructor(address _stakingToken) NativeMinter(_stakingToken) {
         // Due to an oddity in the oasis-cbor package, we start at 2**32
@@ -1795,11 +1799,6 @@ contract stROSEMinter is NativeMinter {
         uint256 costBasis;
         uint64 endReceiptId;
         uint64 epoch;
-    }
-
-    struct UndelegationPool {
-        uint128 totalShares;
-        uint128 totalAmount;
     }
 
     event UpdateRedeemFee(uint256 _redeemFee);
@@ -1843,6 +1842,7 @@ contract stROSEMinter is NativeMinter {
             to,
             amount
         );
+        allPendingDelegationReceipts.push(receiptId);
         emit OnDelegateStart(to, amount, receiptId);
         return receiptId;
     }
@@ -1863,9 +1863,11 @@ contract stROSEMinter is NativeMinter {
         Delegation storage d = delegations[pending.to];
         d.shares += shares;
         d.amount += pending.amount;
+        allDelegationAddresses.push(pending.to);
         emit OnDelegateDone(receiptId, shares);
         // Remove pending delegation.
         delete pendingDelegations[receiptId];
+        removeItemFromArray(allPendingDelegationReceipts, receiptId);
     }
 
     /**
@@ -1909,6 +1911,8 @@ contract stROSEMinter is NativeMinter {
             epoch: 0
         });
 
+        allPendingUndelegationReceipts.push(receiptId);
+
         return receiptId;
     }
 
@@ -1930,8 +1934,6 @@ contract stROSEMinter is NativeMinter {
         pending.endReceiptId = endReceipt;
         pending.epoch = epoch;
 
-        undelegationPools[endReceipt].totalShares += pending.shares;
-
         emit OnUndelegateStart(receiptId, epoch, pending.shares);
     }
 
@@ -1943,16 +1945,12 @@ contract stROSEMinter is NativeMinter {
     function undelegateDone(uint64 receiptId) public onlyOwner {
         PendingUndelegation memory pending = pendingUndelegations[receiptId];
         require(pending.endReceiptId>0, "MustUndelegateStartFirst");
-        UndelegationPool memory pool = undelegationPools[pending.endReceiptId];
-        if (pool.totalAmount == 0) {
-            // Did not fetch the end receipt yet, do it now.
-            uint128 amount = Subcall.consensusTakeReceiptUndelegateDone(
-                pending.endReceiptId
-            );
-            undelegationPools[pending.endReceiptId].totalAmount = amount;
-            pool.totalAmount = amount;
-        }
+        uint128 amount = Subcall.consensusTakeReceiptUndelegateDone(
+            pending.endReceiptId
+        );
+        require(amount>0, "ZeroUndelegate");
         delete pendingUndelegations[receiptId];
+        removeItemFromArray(allPendingUndelegationReceipts, receiptId);
     }
 
     function redeem(uint256 amount, address receiver) public nonReentrant {
@@ -1967,6 +1965,28 @@ contract stROSEMinter is NativeMinter {
 
     function withdraw(address receiver) public view onlyOwner override {
         revert(string(abi.encodePacked("Withdraw function disabled for ", receiver)));
+    }
+
+    function getAllPendingDelegations() public view returns (uint64[] memory) {
+        return allPendingDelegationReceipts;
+    }
+
+    function getAllDelegations() public view returns (StakingAddress[] memory) {
+        return allDelegationAddresses;
+    }
+
+    function getAllPendingUndelegations() public view returns (uint64[] memory) {
+        return allPendingUndelegationReceipts;
+    }
+
+    function removeItemFromArray(uint64[] storage array, uint64 item) internal {
+        for (uint256 i = 0; i < array.length; i++) {
+            if (array[i] == item) {
+                array[i] = array[array.length - 1];
+                array.pop();
+                break;
+            }
+        }
     }
 
 }
