@@ -1979,6 +1979,42 @@ contract stROSEMinter is NativeMinter {
         return allPendingUndelegationReceipts;
     }
 
+    /**
+     * Get information about a single delegation by staking address.
+     *
+     * @param staker The staking address of the validator.
+     */
+    function getDelegationInfo(StakingAddress staker) public view returns (uint256 amount, uint128 shares) {
+        Delegation memory delegation = delegations[staker];
+        amount = delegation.amount;
+        shares = delegation.shares;
+    }
+
+    /**
+     * Get information about a single pending delegation by receipt ID.
+     *
+     * @param receiptId The ID of the pending delegation receipt.
+     */
+    function getPendingDelegationInfo(uint64 receiptId) public view returns (StakingAddress to, uint128 amount) {
+        PendingDelegation memory pendingDelegation = pendingDelegations[receiptId];
+        to = pendingDelegation.to;
+        amount = pendingDelegation.amount;
+    }
+
+    /**
+     * Get information about a single pending undelegation by receipt ID.
+     *
+     * @param receiptId The ID of the pending undelegation receipt.
+     */
+    function getPendingUndelegationInfo(uint64 receiptId) public view returns (StakingAddress from, uint128 shares, uint256 costBasis, uint64 endReceiptId, uint64 epoch) {
+        PendingUndelegation memory pendingUndelegation = pendingUndelegations[receiptId];
+        from = pendingUndelegation.from;
+        shares = pendingUndelegation.shares;
+        costBasis = pendingUndelegation.costBasis;
+        endReceiptId = pendingUndelegation.endReceiptId;
+        epoch = pendingUndelegation.epoch;
+    }
+
     function removeItemFromArray(uint64[] storage array, uint64 item) internal {
         for (uint256 i = 0; i < array.length; i++) {
             if (array[i] == item) {
