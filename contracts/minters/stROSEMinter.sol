@@ -1883,7 +1883,7 @@ contract stROSEMinter is NativeMinter {
     {
         require(shares > 0, "ZeroUndelegate");
         Delegation storage d = delegations[from];
-        require(d.shares < shares, "NotEnoughShares");
+        require(d.shares >= shares, "NotEnoughShares");
 
         uint64 receiptId = lastReceiptId++;
 
