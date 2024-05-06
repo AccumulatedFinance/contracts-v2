@@ -677,6 +677,8 @@ contract stROSEMinter is NativeMinter {
 
         Subcall.consensusUndelegate(from, shares, receiptId);
 
+        d.shares -= shares;
+
         pendingUndelegations[receiptId] = PendingUndelegation({
             from: from,
             shares: shares,
