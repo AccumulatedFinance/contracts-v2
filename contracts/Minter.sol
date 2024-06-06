@@ -438,18 +438,13 @@ contract ERC20Minter is BaseMinter {
 
 }
 
-
-// ERC20MinterWithRedeem is ERC20Minter extension for restaking that allows to instantly redeem base token (deposited LST)
-contract ERC20MinterWithRedeem is ERC20Minter {
-
+// BaseMinterRedeem is BaseMinter extension with redeem free management
+abstract contract BaseMinterRedeem is BaseMinter {
+    
     using SafeMath for uint256;
-    using SafeTransferLib for IERC20;
 
     uint256 public redeemFee = 0; // possible fee to cover bridging costs
     uint256 public constant MAX_REDEEM_FEE = 500; // max redeem fee 500bp (5%)
-
-    constructor(address _baseToken, address _stakingToken) ERC20Minter(_baseToken, _stakingToken) {
-    }
 
     event UpdateRedeemFee(uint256 _redeemFee);
     event Redeem(address indexed caller, address indexed receiver, uint256 amount);
@@ -464,6 +459,36 @@ contract ERC20MinterWithRedeem is ERC20Minter {
         require(newFee <= MAX_REDEEM_FEE, ">MaxFee");
         redeemFee = newFee;
         emit UpdateRedeemFee(newFee);
+    }
+
+}
+
+// NativeMinterRedeem is NativeMinter extension that allows to instantly network coin
+contract NativeMinterRedeem is BaseMinterRedeem, NativeMinter {
+
+    using SafeTransferLib for IERC20;
+
+    constructor(address _stakingToken) NativeMinter(_stakingToken) {
+    }
+
+    function redeem(uint256 amount, address receiver) public nonReentrant {
+        require(amount > 0, "ZeroRedeem");
+        uint256 redeemAmount = previewRedeem(amount);
+        require(redeemAmount > 0, "ZeroRedeemAmount");
+        stakingToken.safeTransferFrom(address(msg.sender), address(this), amount);
+        stakingToken.burn(amount);
+        SafeTransferLib.safeTransferETH(receiver, redeemAmount);
+        emit Redeem(address(msg.sender), receiver, amount);
+    }
+
+}
+
+// ERC20MinterRedeem is ERC20Minter extension that allows to instantly redeem base token
+contract ERC20MinterRedeem is BaseMinterRedeem, ERC20Minter {
+
+    using SafeTransferLib for IERC20;
+
+    constructor(address _baseToken, address _stakingToken) ERC20Minter(_baseToken, _stakingToken) {
     }
 
     function redeem(uint256 amount, address receiver) public nonReentrant {
