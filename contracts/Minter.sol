@@ -2118,10 +2118,32 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
 
 contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
 
+    using SafeMath for uint256;
+
     constructor(
         address _stakingToken,
         string memory _unstTokenName,
         string memory _unstTokenSymbol
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol) NativeMinter(_stakingToken) {}
+
+    function previewMinterBalance() public view virtual returns (uint256) {
+        uint256 availableBalance = address(this).balance;
+        uint256 minterBalance;
+
+        if (availableBalance < totalUnclaimedWithdrawals) {
+            minterBalance = 0;
+        } else {
+            minterBalance = availableBalance.sub(totalUnclaimedWithdrawals);
+        }
+
+        return minterBalance;
+    }
+
+    function withdraw(address receiver) public virtual onlyOwner override {
+        uint256 minterBalance = previewMinterBalance();
+        require(minterBalance > 0, "BalanceNotEnough");
+        SafeTransferLib.safeTransferETH(receiver, minterBalance);
+        emit Withdraw(address(msg.sender), receiver, minterBalance);
+    }
 
 }
