@@ -2001,6 +2001,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     using SafeTransferLib for IERC20;
 
     uint256 public withdrawalFee = 0; // possible fee to cover bridging costs
+    uint256 public minWithdrawal = 1; // min withdrawal amount (wei)
     uint256 public constant MAX_WITHDRAWAL_FEE = 500; // max withdrawal fee 500bp (5%)
     uint256 public totalPendingWithdrawals = 0; // total pending withdrawals
     uint256 public totalUnclaimedWithdrawals = 0; // total unclaimed withdrawals
@@ -2014,6 +2015,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     mapping(uint256 => WithdrawalRequest) public withdrawalRequests;
 
     event UpdateWithdrawalFee(uint256 _withdrawalFee);
+    event UpdateMinWithdrawal(uint256 _minWithdrawal);
     event RequestWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
     event ProcessWithdrawal(uint256 indexed withdrawalId);
     event ClaimWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
@@ -2063,8 +2065,14 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         emit UpdateWithdrawalFee(withdrawalFee);
     }
 
+    function updateMinWithdrawal(uint256 newMin) public onlyOwner {
+        require(newMin > 0, "ZeroMinWithdrawal");
+        minWithdrawal = newMin;
+        emit UpdateMinWithdrawal(minWithdrawal);
+    }
+
     function requestWithdrawal(uint256 amount, address receiver) public nonReentrant {
-        require(amount > 0, "ZeroWithdrawal");
+        require(amount >= minWithdrawal, "LessThanMin");
         uint256 netAmount = previewWithdrawal(amount);
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         stakingToken.burn(amount);
@@ -2089,6 +2097,21 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         WithdrawalRequest memory request = withdrawalRequests[tokenId];
 
         return request;
+    }
+
+    function processWithdrawals(uint256[] calldata withdrawalIds) public onlyOwner {
+        for (uint256 i = 0; i < withdrawalIds.length; i++) {
+            uint256 withdrawalId = withdrawalIds[i];
+            WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
+            require(request.amount > 0, "ZeroAmount");
+            require(!request.processed, "AlreadyProcessed");
+
+            request.processed = true;
+            totalPendingWithdrawals = totalPendingWithdrawals.sub(request.amount);
+            totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.add(request.amount);
+
+            emit ProcessWithdrawal(withdrawalId);
+        }
     }
 
 }
