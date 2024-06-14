@@ -2082,6 +2082,15 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         emit RequestWithdrawal(address(msg.sender), receiver, amount, withdrawalId);
     }
 
+    function withdrawalRequestOfOwnerByIndex(address owner, uint256 index) public view returns (WithdrawalRequest memory) {
+        require(index < balanceOf(owner), "IndexNotFound");
+
+        uint256 tokenId = tokenOfOwnerByIndex(owner, index);
+        WithdrawalRequest memory request = withdrawalRequests[tokenId];
+
+        return request;
+    }
+
 }
 
 contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
