@@ -2005,7 +2005,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     uint256 public constant MAX_WITHDRAWAL_FEE = 500; // max withdrawal fee 500bp (5%)
     uint256 public totalPendingWithdrawals = 0; // total pending withdrawals
     uint256 public totalUnclaimedWithdrawals = 0; // total unclaimed withdrawals
-    uint256 private _latestWithdrawalId = 0; // counter for withdrawal IDs
+    uint256 public latestWithdrawalId = 0; // counter for withdrawal IDs
 
     struct WithdrawalRequest {
         uint256 amount;
@@ -2018,7 +2018,6 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     event UpdateMinWithdrawal(uint256 _minWithdrawal);
     event RequestWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
     event ProcessWithdrawal(uint256 indexed withdrawalId);
-    event ClaimWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
 
     constructor(
         string memory _unstTokenName,
@@ -2077,7 +2076,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         stakingToken.burn(amount);
 
-        uint256 withdrawalId = _latestWithdrawalId++;
+        uint256 withdrawalId = latestWithdrawalId++;
         _safeMint(receiver, withdrawalId);
 
         withdrawalRequests[withdrawalId] = WithdrawalRequest({
@@ -2120,6 +2119,8 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
 
     using SafeMath for uint256;
 
+    event ClaimWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
+
     constructor(
         address _stakingToken,
         string memory _unstTokenName,
@@ -2144,6 +2145,18 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         require(minterBalance > 0, "BalanceNotEnough");
         SafeTransferLib.safeTransferETH(receiver, minterBalance);
         emit Withdraw(address(msg.sender), receiver, minterBalance);
+    }
+    
+    function claimWithdrawal(uint256 withdrawalId, address receiver) public virtual nonReentrant {
+        require(ownerOf(withdrawalId) == msg.sender, "NotOwner");
+        WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
+        require(request.processed, "NotProcessedYet");
+        
+        _burn(withdrawalId);
+
+        SafeTransferLib.safeTransferETH(receiver, request.amount);
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
+        emit ClaimWithdrawal(msg.sender, receiver, request.amount, withdrawalId);
     }
 
 }
