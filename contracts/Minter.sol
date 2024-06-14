@@ -1805,25 +1805,6 @@ abstract contract ERC721Enumerable is ERC721, IERC721Enumerable {
     }
 }
 
-/**
- * @title ERC721 Burnable Token
- * @dev ERC721 Token that can be burned (destroyed).
- */
-abstract contract ERC721Burnable is Context, ERC721 {
-    /**
-     * @dev Burns `tokenId`. See {ERC721-_burn}.
-     *
-     * Requirements:
-     *
-     * - The caller must own `tokenId` or be an approved operator.
-     */
-    function burn(uint256 tokenId) public virtual {
-        // Setting an "auth" arguments enables the `_isAuthorized` check which verifies that the token exists
-        // (from != 0). Therefore, it is not needed to verify that the return value is not 0 here.
-        _update(address(0), tokenId, _msgSender());
-    }
-}
-
 // BaseMinter
 abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
@@ -1995,7 +1976,7 @@ contract ERC20MinterRedeem is BaseMinterRedeem, ERC20Minter {
 }
 
 // BaseMinterWithdrawal is BaseMinter extension with redeem free management
-abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, ERC721Burnable {
+abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
     
     using SafeMath for uint256;
     using SafeTransferLib for IERC20;
@@ -2005,11 +1986,12 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     uint256 public constant MAX_WITHDRAWAL_FEE = 500; // max withdrawal fee 500bp (5%)
     uint256 public totalPendingWithdrawals = 0; // total pending withdrawals
     uint256 public totalUnclaimedWithdrawals = 0; // total unclaimed withdrawals
-    uint256 public latestWithdrawalId = 0; // counter for withdrawal IDs
+    uint256 private _nextWithdrawalId = 0; // counter for withdrawal IDs
 
     struct WithdrawalRequest {
         uint256 amount;
         bool processed;
+        bool claimed;
     }
 
     mapping(uint256 => WithdrawalRequest) public withdrawalRequests;
@@ -2076,12 +2058,13 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         stakingToken.burn(amount);
 
-        uint256 withdrawalId = latestWithdrawalId++;
+        uint256 withdrawalId = _nextWithdrawalId++;
         _safeMint(receiver, withdrawalId);
 
         withdrawalRequests[withdrawalId] = WithdrawalRequest({
             amount: netAmount,
-            processed: false
+            processed: false,
+            claimed: false
         });
 
         totalPendingWithdrawals = totalPendingWithdrawals.add(netAmount);
@@ -2104,6 +2087,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
             WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
             require(request.amount > 0, "ZeroAmount");
             require(!request.processed, "AlreadyProcessed");
+            require(!request.claimed, "AlreadyClaimed");
 
             request.processed = true;
             totalPendingWithdrawals = totalPendingWithdrawals.sub(request.amount);
@@ -2151,12 +2135,12 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         require(ownerOf(withdrawalId) == msg.sender, "NotOwner");
         WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
         require(request.processed, "NotProcessedYet");
-        
-        _burn(withdrawalId);
-
-        SafeTransferLib.safeTransferETH(receiver, request.amount);
+        require(!request.claimed, "AlreadyClaimed");
+        _transfer(address(msg.sender), address(this), withdrawalId);
+        request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
-        emit ClaimWithdrawal(msg.sender, receiver, request.amount, withdrawalId);
+        SafeTransferLib.safeTransferETH(receiver, request.amount);
+        emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
     }
 
 }
