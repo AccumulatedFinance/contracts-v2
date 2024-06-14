@@ -1962,7 +1962,7 @@ contract NativeMinterRedeem is BaseMinterRedeem, NativeMinter {
     constructor(address _stakingToken) NativeMinter(_stakingToken) {
     }
 
-    function redeem(uint256 amount, address receiver) public nonReentrant {
+    function redeem(uint256 amount, address receiver) public virtual nonReentrant {
         require(amount > 0, "ZeroRedeem");
         uint256 redeemAmount = previewRedeem(amount);
         require(redeemAmount > 0, "ZeroRedeemAmount");
@@ -1982,7 +1982,7 @@ contract ERC20MinterRedeem is BaseMinterRedeem, ERC20Minter {
     constructor(address _baseToken, address _stakingToken) ERC20Minter(_baseToken, _stakingToken) {
     }
 
-    function redeem(uint256 amount, address receiver) public nonReentrant {
+    function redeem(uint256 amount, address receiver) public virtual nonReentrant {
         require(amount > 0, "ZeroRedeem");
         uint256 redeemAmount = previewRedeem(amount);
         require(redeemAmount > 0, "ZeroRedeemAmount");
