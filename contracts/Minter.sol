@@ -1981,11 +1981,12 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
     using SafeMath for uint256;
     using SafeTransferLib for IERC20;
 
-    uint256 public withdrawalFee = 0; // possible fee to cover bridging costs
+    uint256 public withdrawalFee = 0; // possible fee to cover withdrawal costs
     uint256 public minWithdrawal = 1; // min withdrawal amount (wei)
     uint256 public constant MAX_WITHDRAWAL_FEE = 500; // max withdrawal fee 500bp (5%)
     uint256 public totalPendingWithdrawals = 0; // total pending withdrawals
     uint256 public totalUnclaimedWithdrawals = 0; // total unclaimed withdrawals
+    uint256 public totalWithdrawalFees = 0; // total fees accumulated
     uint256 private _nextWithdrawalId = 0; // counter for withdrawal IDs
 
     struct WithdrawalRequest {
@@ -2000,6 +2001,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
     event UpdateMinWithdrawal(uint256 _minWithdrawal);
     event RequestWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
     event ProcessWithdrawal(uint256 indexed withdrawalId);
+    event CollectWithdrawalFees(address indexed caller, address indexed receiver, uint256 amount);
 
     constructor(
         string memory _unstTokenName,
@@ -2056,7 +2058,6 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
         require(amount >= minWithdrawal, "LessThanMin");
         uint256 netAmount = previewWithdrawal(amount);
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
-        stakingToken.burn(amount);
 
         uint256 withdrawalId = _nextWithdrawalId++;
         _safeMint(receiver, withdrawalId);
@@ -2068,6 +2069,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
         });
 
         totalPendingWithdrawals = totalPendingWithdrawals.add(netAmount);
+        totalWithdrawalFees = totalWithdrawalFees.add(amount).sub(netAmount);
 
         emit RequestWithdrawal(address(msg.sender), receiver, amount, withdrawalId);
     }
@@ -2082,6 +2084,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
     }
 
     function processWithdrawals(uint256[] calldata withdrawalIds) public onlyOwner {
+        uint256 totalWithdrawals;
         for (uint256 i = 0; i < withdrawalIds.length; i++) {
             uint256 withdrawalId = withdrawalIds[i];
             WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
@@ -2090,11 +2093,22 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
             require(!request.claimed, "AlreadyClaimed");
 
             request.processed = true;
-            totalPendingWithdrawals = totalPendingWithdrawals.sub(request.amount);
-            totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.add(request.amount);
+            totalWithdrawals = totalWithdrawals.add(request.amount);
 
             emit ProcessWithdrawal(withdrawalId);
         }
+        require(totalWithdrawals <= totalPendingWithdrawals, "TotalWithrawalAmountExceeded");
+        stakingToken.burn(totalWithdrawals);
+        totalPendingWithdrawals = totalPendingWithdrawals.sub(totalWithdrawals);
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.add(totalWithdrawals);
+    }
+
+    function collectWithdrawalFees(address receiver) public onlyOwner {
+        require(totalWithdrawalFees > 0, "ZeroFees");
+        stakingToken.approve(address(this), totalWithdrawalFees);
+        stakingToken.safeTransferFrom(address(this), receiver, totalWithdrawalFees);
+        totalWithdrawalFees = 0;
+        emit CollectWithdrawalFees(address(msg.sender), receiver, totalWithdrawalFees);
     }
 
 }
@@ -2111,24 +2125,24 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         string memory _unstTokenSymbol
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol) NativeMinter(_stakingToken) {}
 
-    function previewMinterBalance() public view virtual returns (uint256) {
+    function minterBalance() public view virtual returns (uint256) {
         uint256 availableBalance = address(this).balance;
-        uint256 minterBalance;
+        uint256 balance;
 
         if (availableBalance < totalUnclaimedWithdrawals) {
-            minterBalance = 0;
+            balance = 0;
         } else {
-            minterBalance = availableBalance.sub(totalUnclaimedWithdrawals);
+            balance = availableBalance.sub(totalUnclaimedWithdrawals);
         }
 
-        return minterBalance;
+        return balance;
     }
 
     function withdraw(address receiver) public virtual onlyOwner override {
-        uint256 minterBalance = previewMinterBalance();
-        require(minterBalance > 0, "BalanceNotEnough");
-        SafeTransferLib.safeTransferETH(receiver, minterBalance);
-        emit Withdraw(address(msg.sender), receiver, minterBalance);
+        uint256 balance = minterBalance();
+        require(balance > 0, "BalanceNotEnough");
+        SafeTransferLib.safeTransferETH(receiver, balance);
+        emit Withdraw(address(msg.sender), receiver, balance);
     }
     
     function claimWithdrawal(uint256 withdrawalId, address receiver) public virtual nonReentrant {
