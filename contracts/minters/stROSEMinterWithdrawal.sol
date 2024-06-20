@@ -704,6 +704,7 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
         delegation.shares += shares;
         
         allDelegations.push(receipt.to);
+        
         emit TakeReceiptDelegate(receiptId);
     }
 
@@ -713,7 +714,7 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
      * @param from Validator which the shares were staked with
      * @param shares Number of shares to debond
      */
-    function undelegate(StakingAddress from, uint128 shares) public onlyOwner returns (uint64)
+    function undelegate(StakingAddress from, uint128 shares) public onlyOwner
     {
         Delegation storage d = delegations[from];
         require(shares > 0, "ZeroUndelegate");
@@ -738,8 +739,6 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
         });
 
         emit Undelegate(from, shares, receiptId);
-
-        return receiptId;
     }
 
     /**
@@ -776,7 +775,7 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
      *
      * @param endReceiptId returned by `undelegateStart`
      */
-    function undelegateDone(uint64 endReceiptId) public onlyOwner {
+    function takeReceiptUndelegateDone(uint64 endReceiptId) public onlyOwner {
         // get all undelegate receiptIds containing endReceiptId
         uint64[] memory receiptIds = endReceiptIdToReceiptIds[endReceiptId];
         
@@ -816,6 +815,23 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
             emit UndelegateDone(receipt.from, receipt.shares, amount, i);
         }
 
+    }
+
+    function emergencyTakeReceiptDelegate(uint64 receiptId) public onlyOwner returns (uint128 shares) {
+        shares = Subcall.consensusTakeReceiptDelegate(receiptId);
+    }
+
+    function emergencyUndelegate(StakingAddress from, uint128 shares, uint64 receiptId) public onlyOwner
+    {
+        Subcall.consensusUndelegate(from, shares, receiptId);
+    }
+
+    function emergencyTakeReceiptUndelegateStart(uint64 receiptId) public onlyOwner returns (uint64 epoch, uint64 endReceiptId) {
+        (epoch, endReceiptId) = Subcall.consensusTakeReceiptUndelegateStart(receiptId);
+    }
+
+    function emergencyTakeReceiptUndelegateDone(uint64 endReceiptId) public onlyOwner returns (uint128 amount) {
+        amount = Subcall.consensusTakeReceiptUndelegateDone(endReceiptId);
     }
 
     function withdraw(address receiver) public view onlyOwner override {
