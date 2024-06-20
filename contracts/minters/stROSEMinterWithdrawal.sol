@@ -681,7 +681,7 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
      * @param receiptId Receipt ID previously emitted/returned by `delegate`.
      */
     function takeReceiptDelegate(uint64 receiptId) public onlyOwner returns (uint128 shares) {
-        DelegationReceipt memory receipt = delegationReceipts[receiptId];
+        DelegationReceipt storage receipt = delegationReceipts[receiptId];
         require(block.number > receipt.blockNumber, "ReceiptNotReady");
         require(receipt.exists, "ReceiptNotExists");
         require(receipt.receiptTaken == false, "AlreadyTaken");
@@ -794,8 +794,8 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
         emit TakeReceiptUndelegateDone(endReceiptId, totalAmount);
 
         for (uint64 i = 0; i < receiptIds.length; i++) {
-            UndelegationReceipt memory receipt = undelegationReceipts[i];
-            Delegation memory delegation = delegations[receipt.from];
+            UndelegationReceipt storage receipt = undelegationReceipts[i];
+            Delegation storage delegation = delegations[receipt.from];
 
             receipt.receiptDoneTaken = true;
             receipt.receiptDoneTakenBlockNumber = block.number;
