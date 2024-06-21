@@ -2006,7 +2006,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     uint256 public totalPendingWithdrawals = 0; // total pending withdrawals
     uint256 public totalUnclaimedWithdrawals = 0; // total unclaimed withdrawals
     uint256 public totalWithdrawalFees = 0; // total fees accumulated
-    uint256 private _nextWithdrawalId = 0; // counter for withdrawal IDs
+    uint256 public nextWithdrawalId = 0; // counter for withdrawal IDs
 
     struct WithdrawalRequest {
         uint256 amount;
@@ -2014,7 +2014,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         bool claimed;
     }
 
-    mapping(uint256 => WithdrawalRequest) public withdrawalRequests;
+    mapping(uint256 => WithdrawalRequest) internal _withdrawalRequests;
 
     event UpdateWithdrawalFee(uint256 _withdrawalFee);
     event UpdateMinWithdrawal(uint256 _minWithdrawal);
@@ -2078,10 +2078,10 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         uint256 netAmount = previewWithdrawal(amount);
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
 
-        uint256 withdrawalId = _nextWithdrawalId++;
+        uint256 withdrawalId = nextWithdrawalId++;
         _safeMint(receiver, withdrawalId);
 
-        withdrawalRequests[withdrawalId] = WithdrawalRequest({
+        _withdrawalRequests[withdrawalId] = WithdrawalRequest({
             amount: netAmount,
             processed: false,
             claimed: false
@@ -2093,11 +2093,28 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         emit RequestWithdrawal(address(msg.sender), receiver, amount, withdrawalId);
     }
 
+    function getWithdrawalRequest(uint256 withdrawalId) public view returns (WithdrawalRequest memory) {
+        WithdrawalRequest memory request = _withdrawalRequests[withdrawalId];
+
+        return (request);
+    }
+
+    function tokensOfOwner(address owner) external view returns (uint256[] memory) {
+        uint256 tokenCount = balanceOf(owner);
+        uint256[] memory tokenIds = new uint256[](tokenCount);
+
+        for (uint256 i = 0; i < tokenCount; i++) {
+            tokenIds[i] = tokenOfOwnerByIndex(owner, i);
+        }
+
+        return tokenIds;
+    }
+
     function withdrawalRequestOfOwnerByIndex(address owner, uint256 index) public view returns (uint256, WithdrawalRequest memory) {
         require(index < balanceOf(owner), "IndexNotFound");
 
         uint256 withdrawalId = tokenOfOwnerByIndex(owner, index);
-        WithdrawalRequest memory request = withdrawalRequests[withdrawalId];
+        WithdrawalRequest memory request = _withdrawalRequests[withdrawalId];
 
         return (withdrawalId, request);
     }
@@ -2106,7 +2123,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         uint256 totalWithdrawals;
         for (uint256 i = 0; i < withdrawalIds.length; i++) {
             uint256 withdrawalId = withdrawalIds[i];
-            WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
+            WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
             require(request.amount > 0, "ZeroAmount");
             require(!request.processed, "AlreadyProcessed");
             require(!request.claimed, "AlreadyClaimed");
@@ -2166,7 +2183,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
     
     function claimWithdrawal(uint256 withdrawalId, address receiver) public virtual nonReentrant {
         require(ownerOf(withdrawalId) == msg.sender, "NotOwner");
-        WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
+        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
         require(request.processed, "NotProcessedYet");
         require(!request.claimed, "AlreadyClaimed");
         _burn(withdrawalId);
