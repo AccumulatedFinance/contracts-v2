@@ -1640,6 +1640,25 @@ abstract contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Er
 }
 
 /**
+ * @title ERC-721 Burnable Token
+ * @dev ERC-721 Token that can be burned (destroyed).
+ */
+abstract contract ERC721Burnable is Context, ERC721 {
+    /**
+     * @dev Burns `tokenId`. See {ERC721-_burn}.
+     *
+     * Requirements:
+     *
+     * - The caller must own `tokenId` or be an approved operator.
+     */
+    function burn(uint256 tokenId) public virtual {
+        // Setting an "auth" arguments enables the `_isAuthorized` check which verifies that the token exists
+        // (from != 0). Therefore, it is not needed to verify that the return value is not 0 here.
+        _update(address(0), tokenId, _msgSender());
+    }
+}
+
+/**
  * @dev This implements an optional extension of {ERC721} defined in the ERC that adds enumerability
  * of all the token ids in the contract as well as all token ids owned by each account.
  *
@@ -1976,7 +1995,7 @@ contract ERC20MinterRedeem is BaseMinterRedeem, ERC20Minter {
 }
 
 // BaseMinterWithdrawal is BaseMinter extension with redeem free management
-abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable {
+abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, ERC721Burnable {
     
     using SafeMath for uint256;
     using SafeTransferLib for IERC20;
@@ -2125,7 +2144,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         string memory _unstTokenSymbol
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol) NativeMinter(_stakingToken) {}
 
-    function minterBalance() public view virtual returns (uint256) {
+    function availableToWithdraw() public view virtual returns (uint256) {
         uint256 availableBalance = address(this).balance;
         uint256 balance;
 
@@ -2139,7 +2158,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
     }
 
     function withdraw(address receiver) public virtual onlyOwner override {
-        uint256 balance = minterBalance();
+        uint256 balance = availableToWithdraw();
         require(balance > 0, "BalanceNotEnough");
         SafeTransferLib.safeTransferETH(receiver, balance);
         emit Withdraw(address(msg.sender), receiver, balance);
@@ -2150,7 +2169,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
         require(request.processed, "NotProcessedYet");
         require(!request.claimed, "AlreadyClaimed");
-        _transfer(address(msg.sender), address(this), withdrawalId);
+        _burn(withdrawalId);
         request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
         SafeTransferLib.safeTransferETH(receiver, request.amount);
