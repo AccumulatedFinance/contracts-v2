@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Forked from https://gist.github.com/CedarMist/adacbb32212cf4f606a44b76dda4ee6c
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.20;
 
 import "../Minter.sol";
+
+/// 21 byte version-prefixed address (1 byte version, 20 bytes truncated digest).
+type StakingAddress is bytes21;
+
+/// 32 byte secret key.
+type StakingSecretKey is bytes32;
 
 enum SubcallReceiptKind {
     Invalid,
@@ -10,12 +15,6 @@ enum SubcallReceiptKind {
     UndelegateStart,
     UndelegateDone
 }
-
-/// 21 byte version-prefixed address (1 byte version, 20 bytes truncated digest).
-type StakingAddress is bytes21;
-
-/// 32 byte secret key.
-type StakingSecretKey is bytes32;
 
 /**
  * @title SDK Subcall wrappers
@@ -550,64 +549,95 @@ library Subcall {
     }
 }
 
-contract stROSEMinter is NativeMinter {
+contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
 
     using SafeMath for uint256;
     using SafeTransferLib for IERC20;
 
-    uint256 public redeemFee = 0; // possible fee to cover bridging costs
-    uint256 public constant MAX_REDEEM_FEE = 200; // max redeem fee 200bp (2%)
-
-    uint64 private lastReceiptId; // Incremented counter to determine receipt IDs
+    uint64 public lastReceiptId; // Incremented counter to determine receipt IDs
     
-    mapping(uint64 => PendingDelegation) private pendingDelegations; // (receiptId => PendingDelegation)
-    mapping(StakingAddress => Delegation) private delegations; // (to) => shares
-    mapping(uint64 => PendingUndelegation) private pendingUndelegations; // (receiptId => PendingUndelegation)
+    mapping(StakingAddress => Delegation) private delegations; // (validator => Delegation)
+    mapping(uint64 => DelegationReceipt) private delegationReceipts; // (receiptId => DelegationReceipt)
+    mapping(uint64 => UndelegationReceipt) private undelegationReceipts; // (receiptId => UndelegationReceipt)
+    mapping(uint64 => uint64[]) public endReceiptIdToReceiptIds; // (endReceiptId => array of receiptIds)
 
-    uint64[] private allPendingDelegationReceipts;
-    StakingAddress[] private allDelegationAddresses;
-    uint64[] private allPendingUndelegationReceipts;
+    StakingAddress[] private allDelegations;
 
-    constructor(address _stakingToken) NativeMinter(_stakingToken) {
+    constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstROSE", "unstROSE") {
         // Due to an oddity in the oasis-cbor package, we start at 2**32
         // Otherwise uint64 parsing will fail and the message is rejected
         lastReceiptId = 4294967296;
     }
 
-    struct PendingDelegation {
+    struct Delegation {
+        uint128 amount;
+        uint128 shares;
+    }
+
+    struct DelegationReceipt {
+        bool exists;
         StakingAddress to;
+        uint256 blockNumber;
+        bool receiptTaken;
+        uint256 receiptTakenBlockNumber;
+        uint128 shares;
         uint128 amount;
     }
 
-    struct Delegation {
-        uint128 shares;
-    }
-
-    struct PendingUndelegation {
+    struct UndelegationReceipt {
+        bool exists;
         StakingAddress from;
-        uint128 shares;
-        uint64 endReceiptId;
+        uint256 blockNumber;
+        bool receiptStartTaken;
+        uint256 receiptStartTakenBlockNumber;
+        bool receiptDoneTaken;
+        uint256 receiptDoneTakenBlockNumber;
         uint64 epoch;
+        uint64 endReceiptId;
+        uint128 shares;
+        uint128 amount;
     }
 
-    event UpdateRedeemFee(uint256 _redeemFee);
-    event Redeem(address indexed caller, address indexed receiver, uint256 amount);
+    event Delegate(StakingAddress to, uint128 amount, uint64 indexed receiptId);
+    event TakeReceiptDelegate(uint64 indexed receiptId);
+    event Undelegate(StakingAddress from, uint128 shares, uint64 indexed receiptId);
+    event TakeReceiptUndelegateStart(uint64 indexed receiptId, uint64 indexed epoch, uint64 indexed endReceiptId);
+    event TakeReceiptUndelegateDone(uint64 indexed endReceiptId, uint128 amount);
+    event UndelegateDone(StakingAddress from, uint128 shares, uint128 amount, uint64 indexed receiptId);
 
-    event OnDelegateStart(StakingAddress to, uint256 amount, uint64 receiptId);
-    event OnDelegateDone(uint64 indexed receiptId, uint128 shares);
-    event OnUndelegateStart(uint64 indexed receiptId, uint64 epoch, uint128 shares);
-    event OnUndelegateDone(StakingAddress from, uint128 shares);
-
-    function previewRedeem(uint256 amount) public view virtual returns (uint256) {
-        uint256 feeAmount = amount.mul(redeemFee).div(FEE_DENOMINATOR);
-        uint256 netAmount = amount.sub(feeAmount);
-        return netAmount;
+    // Function to compare two StakingAddress values
+    function _areEqual(StakingAddress a, StakingAddress b) internal pure returns (bool) {
+        return StakingAddress.unwrap(a) == StakingAddress.unwrap(b);
     }
 
-    function updateRedeemFee(uint256 newFee) public onlyOwner {
-        require(newFee <= MAX_DEPOSIT_FEE, ">MaxFee");
-        redeemFee = newFee;
-        emit UpdateRedeemFee(newFee);
+    // Function to add a validator while avoiding duplicates
+    function _addDelegation(StakingAddress validator) internal {
+        // Check if the address already exists in the array
+        bool exists = false;
+        for (uint256 i = 0; i < allDelegations.length; i++) {
+            if (_areEqual(allDelegations[i], validator)) {
+                exists = true;
+                break;
+            }
+        }
+
+        // If the address does not exist, add it to the array
+        if (!exists) {
+            allDelegations.push(validator);
+        }
+    }
+
+    // Function to remove a validator
+    function _removeDelegation(StakingAddress validator) internal {
+        for (uint256 i = 0; i < allDelegations.length; i++) {
+            if (_areEqual(allDelegations[i], validator)) {
+                // Move the last element into the place to delete
+                allDelegations[i] = allDelegations[allDelegations.length - 1];
+                // Remove the last element
+                allDelegations.pop();
+                break;
+            }
+        }
     }
 
      /**
@@ -627,12 +657,16 @@ contract stROSEMinter is NativeMinter {
         require(amount > 0, "ZeroDelegate");
         uint64 receiptId = lastReceiptId++;
         Subcall.consensusDelegate(to, amount, receiptId);
-        pendingDelegations[receiptId] = PendingDelegation(
-            to,
-            amount
-        );
-        allPendingDelegationReceipts.push(receiptId);
-        emit OnDelegateStart(to, amount, receiptId);
+        delegationReceipts[receiptId] = DelegationReceipt({
+            exists: true,
+            to: to,
+            blockNumber: block.number,
+            receiptTaken: false,
+            receiptTakenBlockNumber: 0,
+            shares: 0,
+            amount: amount
+        });
+        emit Delegate(to, amount, receiptId);
         return receiptId;
     }
 
@@ -646,16 +680,32 @@ contract stROSEMinter is NativeMinter {
      *
      * @param receiptId Receipt ID previously emitted/returned by `delegate`.
      */
-    function delegateDone(uint64 receiptId) public onlyOwner returns (uint128 shares) {
-        PendingDelegation memory pending = pendingDelegations[receiptId];
+    function takeReceiptDelegate(uint64 receiptId) public onlyOwner returns (uint128 shares) {
+        DelegationReceipt storage receipt = delegationReceipts[receiptId];
+        require(block.number > receipt.blockNumber, "ReceiptNotReady");
+        require(receipt.exists, "ReceiptNotExists");
+        require(receipt.receiptTaken == false, "AlreadyTaken");
         shares = Subcall.consensusTakeReceiptDelegate(receiptId);
-        Delegation storage d = delegations[pending.to];
-        d.shares += shares;
-        allDelegationAddresses.push(pending.to);
-        emit OnDelegateDone(receiptId, shares);
-        // Remove pending delegation.
-        delete pendingDelegations[receiptId];
-        removeItemFromArray(allPendingDelegationReceipts, receiptId);
+        Delegation storage delegation = delegations[receipt.to];
+        shares = uint128(receipt.amount);
+        if (delegation.shares != 0)
+        {
+            // convert from assets to shares with support for rounding direction.
+            // https://github.com/OpenZeppelin/openzeppelin-contracts/blob/bd325d56b4c62c9c5c1aff048c37c6bb18ac0290/contracts/token/ERC20/extensions/ERC4626.sol#L199
+            shares = uint128(Math.mulDiv(receipt.amount, delegation.shares + (10**18), delegation.amount + 1, Math.Rounding.Ceil));
+        }
+
+        // Update receipt with the necessary info
+        receipt.shares = shares;
+        receipt.receiptTaken = true;
+        receipt.receiptTakenBlockNumber = block.number;
+
+        delegation.amount += receipt.amount;
+        delegation.shares += shares;
+        
+        allDelegations.push(receipt.to);
+        
+        emit TakeReceiptDelegate(receiptId);
     }
 
     /**
@@ -664,31 +714,31 @@ contract stROSEMinter is NativeMinter {
      * @param from Validator which the shares were staked with
      * @param shares Number of shares to debond
      */
-    function undelegate(StakingAddress from, uint128 shares)
-        public
-        onlyOwner
-        returns (uint64)
+    function undelegate(StakingAddress from, uint128 shares) public onlyOwner
     {
-        require(shares > 0, "ZeroUndelegate");
         Delegation storage d = delegations[from];
+        require(shares > 0, "ZeroUndelegate");
         require(d.shares >= shares, "NotEnoughShares");
 
         uint64 receiptId = lastReceiptId++;
 
         Subcall.consensusUndelegate(from, shares, receiptId);
 
-        d.shares -= shares;
-
-        pendingUndelegations[receiptId] = PendingUndelegation({
+        undelegationReceipts[receiptId] = UndelegationReceipt({
+            exists: true,
             from: from,
-            shares: shares,
+            blockNumber: block.number,
+            receiptStartTaken: false,
+            receiptStartTakenBlockNumber: 0,
+            receiptDoneTaken: false,
+            receiptDoneTakenBlockNumber: 0,
+            epoch: 0,
             endReceiptId: 0,
-            epoch: 0
+            shares: shares,
+            amount: 0
         });
 
-        allPendingUndelegationReceipts.push(receiptId);
-
-        return receiptId;
+        emit Undelegate(from, shares, receiptId);
     }
 
     /**
@@ -701,101 +751,122 @@ contract stROSEMinter is NativeMinter {
      *
      * @param receiptId Receipt retuned/emitted from `undelegate`
      */
-    function undelegateStart(uint64 receiptId) public onlyOwner {
-        PendingUndelegation storage pending = pendingUndelegations[receiptId];
+    function takeReceiptUndelegateStart(uint64 receiptId) public onlyOwner {
+        UndelegationReceipt storage receipt = undelegationReceipts[receiptId];
+        require(block.number > receipt.blockNumber, "ReceiptNotReady");
+        require(receipt.exists == true, "ReceiptNotExists");
+        require(receipt.receiptStartTaken == false, "AlreadyTaken");
 
-        (uint64 epoch, uint64 endReceipt) = Subcall.consensusTakeReceiptUndelegateStart(receiptId);
+        (uint64 epoch, uint64 endReceiptId) = Subcall.consensusTakeReceiptUndelegateStart(receiptId);
 
-        pending.endReceiptId = endReceipt;
-        pending.epoch = epoch;
+        receipt.receiptStartTaken = true;
+        receipt.receiptStartTakenBlockNumber = block.number;
+        receipt.epoch = epoch;
+        receipt.endReceiptId = endReceiptId;
 
-        emit OnUndelegateStart(receiptId, epoch, pending.shares);
+        // map receiptId to endReceiptId
+        endReceiptIdToReceiptIds[endReceiptId].push(receiptId);
+
+        emit TakeReceiptUndelegateStart(receiptId, epoch, endReceiptId);
     }
 
     /**
      * Finish the undelegation process, transferring the staked ROSE back.
      *
-     * @param receiptId returned/emitted from `undelegateStart`
+     * @param endReceiptId returned by `undelegateStart`
      */
-    function undelegateDone(uint64 receiptId) public onlyOwner {
-        PendingUndelegation memory pending = pendingUndelegations[receiptId];
-        require(pending.endReceiptId>0, "MustUndelegateStartFirst");
-        uint128 amount = Subcall.consensusTakeReceiptUndelegateDone(
-            pending.endReceiptId
+    function takeReceiptUndelegateDone(uint64 endReceiptId) public onlyOwner {
+        // get all undelegate receiptIds containing endReceiptId
+        uint64[] memory receiptIds = endReceiptIdToReceiptIds[endReceiptId];
+        
+        for (uint64 i = 0; i < receiptIds.length; i++) {
+            UndelegationReceipt memory receipt = undelegationReceipts[i];
+            require(receipt.exists == true, "ReceiptNotExists");
+            require(receipt.receiptStartTaken == true, "NotStarted");
+            require(receipt.receiptDoneTaken == false, "AlreadyTaken");
+        }
+
+        uint128 totalAmount = Subcall.consensusTakeReceiptUndelegateDone(
+            endReceiptId
         );
-        require(amount>0, "ZeroUndelegate");
-        delete pendingUndelegations[receiptId];
-        removeItemFromArray(allPendingUndelegationReceipts, receiptId);
+        require(totalAmount>0, "ZeroUndelegate");
+        emit TakeReceiptUndelegateDone(endReceiptId, totalAmount);
+
+        for (uint64 i = 0; i < receiptIds.length; i++) {
+            UndelegationReceipt storage receipt = undelegationReceipts[i];
+            Delegation storage delegation = delegations[receipt.from];
+
+            receipt.receiptDoneTaken = true;
+            receipt.receiptDoneTakenBlockNumber = block.number;
+
+            uint128 amount;
+
+            // if no shares left, deduct entire amount
+            if (receipt.shares == delegation.shares) {
+                amount = delegation.amount;
+            } else {
+                amount = uint128(Math.mulDiv(receipt.shares, delegation.amount + 1, delegation.shares + (10**18), Math.Rounding.Floor));
+            }
+
+            receipt.amount = amount;
+
+            delegation.shares -= receipt.shares;
+            delegation.amount -= amount;
+            emit UndelegateDone(receipt.from, receipt.shares, amount, i);
+        }
+
     }
 
-    function redeem(uint256 amount, address receiver) public nonReentrant {
-        require(amount > 0, "ZeroRedeem");
-        uint256 redeemAmount = previewRedeem(amount);
-        require(redeemAmount > 0, "ZeroRedeemAmount");
-        stakingToken.safeTransferFrom(address(msg.sender), address(this), amount);
-        stakingToken.burn(amount);
-        SafeTransferLib.safeTransferETH(receiver, redeemAmount);
-        emit Redeem(address(msg.sender), receiver, amount);
+    function emergencyTakeReceiptDelegate(uint64 receiptId) public onlyOwner returns (uint128 shares) {
+        shares = Subcall.consensusTakeReceiptDelegate(receiptId);
+    }
+
+    function emergencyUndelegate(StakingAddress from, uint128 shares, uint64 receiptId) public onlyOwner
+    {
+        Subcall.consensusUndelegate(from, shares, receiptId);
+    }
+
+    function emergencyTakeReceiptUndelegateStart(uint64 receiptId) public onlyOwner returns (uint64 epoch, uint64 endReceiptId) {
+        (epoch, endReceiptId) = Subcall.consensusTakeReceiptUndelegateStart(receiptId);
+    }
+
+    function emergencyTakeReceiptUndelegateDone(uint64 endReceiptId) public onlyOwner returns (uint128 amount) {
+        amount = Subcall.consensusTakeReceiptUndelegateDone(endReceiptId);
     }
 
     function withdraw(address receiver) public view onlyOwner override {
         revert(string(abi.encodePacked("Withdraw function disabled for ", receiver)));
     }
 
-    function getAllPendingDelegations() public view returns (uint64[] memory) {
-        return allPendingDelegationReceipts;
-    }
-
     function getAllDelegations() public view returns (StakingAddress[] memory) {
-        return allDelegationAddresses;
-    }
-
-    function getAllPendingUndelegations() public view returns (uint64[] memory) {
-        return allPendingUndelegationReceipts;
+        return allDelegations;
     }
 
     /**
      * Get information about a single delegation by staking address.
      *
-     * @param staker The staking address of the validator.
+     * @param validator The staking address of the validator.
      */
-    function getDelegationInfo(StakingAddress staker) public view returns (uint128 shares) {
-        Delegation memory delegation = delegations[staker];
-        shares = delegation.shares;
+    function getDelegation(StakingAddress validator) public view returns (Delegation memory delegation) {
+        return delegations[validator];
     }
 
     /**
-     * Get information about a single pending delegation by receipt ID.
+     * Get information about a single delegation by receipt ID.
      *
-     * @param receiptId The ID of the pending delegation receipt.
+     * @param receiptId The ID of the delegation receipt.
      */
-    function getPendingDelegationInfo(uint64 receiptId) public view returns (StakingAddress to, uint128 amount) {
-        PendingDelegation memory pendingDelegation = pendingDelegations[receiptId];
-        to = pendingDelegation.to;
-        amount = pendingDelegation.amount;
+    function getDelegationReceipt(uint64 receiptId) public view returns (DelegationReceipt memory receipt) {
+        return delegationReceipts[receiptId];
     }
 
     /**
-     * Get information about a single pending undelegation by receipt ID.
+     * Get information about a single undelegation by receipt ID.
      *
-     * @param receiptId The ID of the pending undelegation receipt.
+     * @param receiptId The ID of the undelegation receipt.
      */
-    function getPendingUndelegationInfo(uint64 receiptId) public view returns (StakingAddress from, uint128 shares, uint64 endReceiptId, uint64 epoch) {
-        PendingUndelegation memory pendingUndelegation = pendingUndelegations[receiptId];
-        from = pendingUndelegation.from;
-        shares = pendingUndelegation.shares;
-        endReceiptId = pendingUndelegation.endReceiptId;
-        epoch = pendingUndelegation.epoch;
-    }
-
-    function removeItemFromArray(uint64[] storage array, uint64 item) internal {
-        for (uint256 i = 0; i < array.length; i++) {
-            if (array[i] == item) {
-                array[i] = array[array.length - 1];
-                array.pop();
-                break;
-            }
-        }
+    function getUndelegationReceipt(uint64 receiptId) public view returns (UndelegationReceipt memory receipt) {
+        return undelegationReceipts[receiptId];
     }
 
 }
