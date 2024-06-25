@@ -2021,6 +2021,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     event RequestWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
     event ProcessWithdrawal(uint256 indexed withdrawalId);
     event CollectWithdrawalFees(address indexed caller, address indexed receiver, uint256 amount);
+    event ClaimWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
 
     constructor(
         string memory _unstTokenName,
@@ -2144,8 +2145,6 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
 
     using SafeMath for uint256;
 
-    event ClaimWithdrawal(address indexed caller, address indexed receiver, uint256 amount, uint256 indexed withdrawalId);
-
     constructor(
         address _stakingToken,
         string memory _unstTokenName,
@@ -2181,6 +2180,52 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
         SafeTransferLib.safeTransferETH(receiver, request.amount);
+        emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
+    }
+
+}
+
+contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
+
+    using SafeMath for uint256;
+    using SafeTransferLib for IERC20;
+
+    constructor(
+        address _baseToken,
+        address _stakingToken,
+        string memory _unstTokenName,
+        string memory _unstTokenSymbol
+    ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol) ERC20Minter(_baseToken, _stakingToken) {}
+
+    function availableToWithdraw() public view virtual returns (uint256) {
+        uint256 availableBalance = baseToken.balanceOf(address(this));
+        uint256 balance;
+
+        if (availableBalance < totalUnclaimedWithdrawals) {
+            balance = 0;
+        } else {
+            balance = availableBalance.sub(totalUnclaimedWithdrawals);
+        }
+
+        return balance;
+    }
+
+    function withdraw(address receiver) public virtual onlyOwner override {
+        uint256 balance = availableToWithdraw();
+        require(balance > 0, "BalanceNotEnough");
+        baseToken.safeTransferFrom(address(this), receiver, balance);
+        emit Withdraw(address(msg.sender), receiver, balance);
+    }
+    
+    function claimWithdrawal(uint256 withdrawalId, address receiver) public virtual nonReentrant {
+        require(ownerOf(withdrawalId) == msg.sender, "NotOwner");
+        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
+        require(request.processed, "NotProcessedYet");
+        require(!request.claimed, "AlreadyClaimed");
+        _burn(withdrawalId);
+        request.claimed = true;
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
+        baseToken.safeTransferFrom(address(this), receiver, request.amount);
         emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
     }
 
