@@ -2151,7 +2151,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         string memory _unstTokenSymbol
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol) NativeMinter(_stakingToken) {}
 
-    function availableToWithdraw() public view virtual returns (uint256) {
+    function balanceAvailable() public view virtual returns (uint256) {
         uint256 availableBalance = address(this).balance;
         uint256 balance;
 
@@ -2165,7 +2165,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
     }
 
     function withdraw(address receiver) public virtual onlyOwner override {
-        uint256 balance = availableToWithdraw();
+        uint256 balance = balanceAvailable();
         require(balance > 0, "BalanceNotEnough");
         SafeTransferLib.safeTransferETH(receiver, balance);
         emit Withdraw(address(msg.sender), receiver, balance);
@@ -2197,7 +2197,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         string memory _unstTokenSymbol
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol) ERC20Minter(_baseToken, _stakingToken) {}
 
-    function availableToWithdraw() public view virtual returns (uint256) {
+    function balanceAvailable() public view virtual returns (uint256) {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         uint256 balance;
 
@@ -2211,7 +2211,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
     }
 
     function withdraw(address receiver) public virtual onlyOwner override {
-        uint256 balance = availableToWithdraw();
+        uint256 balance = balanceAvailable();
         require(balance > 0, "BalanceNotEnough");
         baseToken.safeTransferFrom(address(this), receiver, balance);
         emit Withdraw(address(msg.sender), receiver, balance);
