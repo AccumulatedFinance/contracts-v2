@@ -685,9 +685,10 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
         require(block.number > receipt.blockNumber, "ReceiptNotReady");
         require(receipt.exists, "ReceiptNotExists");
         require(receipt.receiptTaken == false, "AlreadyTaken");
+
         shares = Subcall.consensusTakeReceiptDelegate(receiptId);
         Delegation storage delegation = delegations[receipt.to];
-        shares = uint128(receipt.amount);
+
         if (delegation.shares != 0)
         {
             // convert from assets to shares with support for rounding direction.
