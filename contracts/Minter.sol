@@ -1904,8 +1904,6 @@ contract ERC20Minter is BaseMinter {
 
     constructor(address _baseToken, address _stakingToken) BaseMinter(_stakingToken) {
         baseToken = IERC20(_baseToken);
-        // this contract can spend baseToken
-        baseToken.approve(address(this), type(uint256).max);
     }
 
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
@@ -1923,7 +1921,7 @@ contract ERC20Minter is BaseMinter {
     function withdraw(address receiver) public virtual onlyOwner {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         require(availableBalance > 0, "ZeroWithdraw");
-        baseToken.safeTransferFrom(address(this), receiver, availableBalance);
+        baseToken.safeTransfer(receiver, availableBalance);
         emit Withdraw(address(msg.sender), receiver, availableBalance);
     }
 
@@ -1988,7 +1986,7 @@ contract ERC20MinterRedeem is BaseMinterRedeem, ERC20Minter {
         require(redeemAmount > 0, "ZeroRedeemAmount");
         stakingToken.safeTransferFrom(address(msg.sender), address(this), amount);
         stakingToken.burn(amount);
-        baseToken.safeTransferFrom(address(this), receiver, redeemAmount);
+        baseToken.safeTransfer(receiver, redeemAmount);
         emit Redeem(address(msg.sender), receiver, amount);
     }
 
@@ -2134,7 +2132,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     function collectWithdrawalFees(address receiver) public onlyOwner {
         require(totalWithdrawalFees > 0, "ZeroFees");
         stakingToken.approve(address(this), totalWithdrawalFees);
-        stakingToken.safeTransferFrom(address(this), receiver, totalWithdrawalFees);
+        stakingToken.safeTransfer(receiver, totalWithdrawalFees);
         totalWithdrawalFees = 0;
         emit CollectWithdrawalFees(address(msg.sender), receiver, totalWithdrawalFees);
     }
@@ -2212,7 +2210,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
     function withdraw(address receiver) public virtual onlyOwner override {
         uint256 balance = balanceAvailable();
         require(balance > 0, "BalanceNotEnough");
-        baseToken.safeTransferFrom(address(this), receiver, balance);
+        baseToken.safeTransfer(receiver, balance);
         emit Withdraw(address(msg.sender), receiver, balance);
     }
     
@@ -2224,7 +2222,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         _burn(withdrawalId);
         request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
-        baseToken.safeTransferFrom(address(this), receiver, request.amount);
+        baseToken.safeTransfer(receiver, request.amount);
         emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
     }
 
