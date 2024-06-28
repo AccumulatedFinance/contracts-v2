@@ -2080,7 +2080,6 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
 
     function collectWithdrawalFees(address receiver) public onlyOwner {
         require(totalWithdrawalFees > 0, "ZeroFees");
-        stakingToken.approve(address(this), totalWithdrawalFees);
         stakingToken.safeTransfer(receiver, totalWithdrawalFees);
         totalWithdrawalFees = 0;
         emit CollectWithdrawalFees(address(msg.sender), receiver, totalWithdrawalFees);
