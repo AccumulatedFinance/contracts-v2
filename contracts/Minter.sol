@@ -286,52 +286,6 @@ interface IERC721Enumerable is IERC721 {
     function tokenByIndex(uint256 index) external view returns (uint256);
 }
 
-/**
- * @title SafeMath
- * @dev Math operations with safety checks that throw on error
- */
-library SafeMath {
-
-  /**
-  * @dev Multiplies two numbers, throws on overflow.
-  */
-  function mul(uint256 a, uint256 b) internal pure returns (uint256 c) {
-    if (a == 0) {
-      return 0;
-    }
-    c = a * b;
-    assert(c / a == b);
-    return c;
-  }
-
-  /**
-  * @dev Integer division of two numbers, truncating the quotient.
-  */
-  function div(uint256 a, uint256 b) internal pure returns (uint256) {
-    // assert(b > 0); // Solidity automatically throws when dividing by 0
-    // uint256 c = a / b;
-    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-    return a / b;
-  }
-
-  /**
-  * @dev Subtracts two numbers, throws on overflow (i.e. if subtrahend is greater than minuend).
-  */
-  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-    assert(b <= a);
-    return a - b;
-  }
-
-  /**
-  * @dev Adds two numbers, throws on overflow.
-  */
-  function add(uint256 a, uint256 b) internal pure returns (uint256 c) {
-    c = a + b;
-    assert(c >= a);
-    return c;
-  }
-}
-
 /// @notice Safe ETH and ERC20 transfer library that gracefully handles missing return values.
 /// @author Solmate (https://github.com/transmissions11/solmate/blob/main/src/utils/SafeTransferLib.sol)
 /// @dev Use with caution! Some functions in this library knowingly create dirty bits at the destination of the free memory pointer.
@@ -1827,8 +1781,6 @@ abstract contract ERC721Enumerable is ERC721, IERC721Enumerable {
 // BaseMinter
 abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
-    using SafeMath for uint256;
-
     uint256 public depositFee = 0; // possible fee to cover bridging costs
     uint256 public constant MAX_DEPOSIT_FEE = 500; // max deposit fee 500bp (5%)
     uint256 public constant FEE_DENOMINATOR = 10000; // fee denominator for basis points
@@ -1845,8 +1797,8 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     event Mint(address indexed caller, address indexed receiver, uint256 amount);
 
     function previewDeposit(uint256 amount) public view virtual returns (uint256) {
-        uint256 feeAmount = amount.mul(depositFee).div(FEE_DENOMINATOR);
-        uint256 netAmount = amount.sub(feeAmount);
+        uint256 feeAmount = amount*depositFee/FEE_DENOMINATOR;
+        uint256 netAmount = amount-feeAmount;
         return netAmount;
     }
 
@@ -1929,8 +1881,6 @@ contract ERC20Minter is BaseMinter {
 
 // BaseMinterRedeem is BaseMinter extension with redeem free management
 abstract contract BaseMinterRedeem is BaseMinter {
-    
-    using SafeMath for uint256;
 
     uint256 public redeemFee = 0; // possible fee to cover bridging costs
     uint256 public constant MAX_REDEEM_FEE = 500; // max redeem fee 500bp (5%)
@@ -1939,8 +1889,8 @@ abstract contract BaseMinterRedeem is BaseMinter {
     event Redeem(address indexed caller, address indexed receiver, uint256 amount);
 
     function previewRedeem(uint256 amount) public view virtual returns (uint256) {
-        uint256 feeAmount = amount.mul(redeemFee).div(FEE_DENOMINATOR);
-        uint256 netAmount = amount.sub(feeAmount);
+        uint256 feeAmount = amount*redeemFee/FEE_DENOMINATOR;
+        uint256 netAmount = amount-feeAmount;
         return netAmount;
     }
 
@@ -1994,8 +1944,7 @@ contract ERC20MinterRedeem is BaseMinterRedeem, ERC20Minter {
 
 // BaseMinterWithdrawal is BaseMinter extension with redeem free management
 abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, ERC721Burnable {
-    
-    using SafeMath for uint256;
+
     using SafeTransferLib for IERC20;
 
     uint256 public withdrawalFee = 0; // possible fee to cover withdrawal costs
@@ -2055,8 +2004,8 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     // Minter
 
     function previewWithdrawal(uint256 amount) public view virtual returns (uint256) {
-        uint256 feeAmount = amount.mul(withdrawalFee).div(FEE_DENOMINATOR);
-        uint256 netAmount = amount.sub(feeAmount);
+        uint256 feeAmount = amount*withdrawalFee/FEE_DENOMINATOR;
+        uint256 netAmount = amount-feeAmount;
         return netAmount;
     }
 
@@ -2086,8 +2035,8 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
             claimed: false
         });
 
-        totalPendingWithdrawals = totalPendingWithdrawals.add(netAmount);
-        totalWithdrawalFees = totalWithdrawalFees.add(amount).sub(netAmount);
+        totalPendingWithdrawals = totalPendingWithdrawals+netAmount;
+        totalWithdrawalFees = totalWithdrawalFees+amount-netAmount;
 
         emit RequestWithdrawal(address(msg.sender), receiver, amount, withdrawalId);
     }
@@ -2119,14 +2068,14 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
             require(!request.claimed, "AlreadyClaimed");
 
             request.processed = true;
-            totalWithdrawals = totalWithdrawals.add(request.amount);
+            totalWithdrawals = totalWithdrawals+request.amount;
 
             emit ProcessWithdrawal(withdrawalId);
         }
         require(totalWithdrawals <= totalPendingWithdrawals, "TotalWithrawalAmountExceeded");
         stakingToken.burn(totalWithdrawals);
-        totalPendingWithdrawals = totalPendingWithdrawals.sub(totalWithdrawals);
-        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.add(totalWithdrawals);
+        totalPendingWithdrawals = totalPendingWithdrawals-totalWithdrawals;
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+totalWithdrawals;
     }
 
     function collectWithdrawalFees(address receiver) public onlyOwner {
@@ -2141,8 +2090,6 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
 
 contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
 
-    using SafeMath for uint256;
-
     constructor(
         address _stakingToken,
         string memory _unstTokenName,
@@ -2156,7 +2103,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         if (availableBalance < totalUnclaimedWithdrawals) {
             balance = 0;
         } else {
-            balance = availableBalance.sub(totalUnclaimedWithdrawals);
+            balance = availableBalance-totalUnclaimedWithdrawals;
         }
 
         return balance;
@@ -2175,7 +2122,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         require(request.processed, "NotProcessedYet");
         _burn(withdrawalId);
         request.claimed = true;
-        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals-request.amount;
         SafeTransferLib.safeTransferETH(receiver, request.amount);
         emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
     }
@@ -2184,7 +2131,6 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
 
 contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
 
-    using SafeMath for uint256;
     using SafeTransferLib for IERC20;
 
     constructor(
@@ -2201,7 +2147,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         if (availableBalance < totalUnclaimedWithdrawals) {
             balance = 0;
         } else {
-            balance = availableBalance.sub(totalUnclaimedWithdrawals);
+            balance = availableBalance-totalUnclaimedWithdrawals;
         }
 
         return balance;
@@ -2221,7 +2167,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         require(!request.claimed, "AlreadyClaimed");
         _burn(withdrawalId);
         request.claimed = true;
-        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals-request.amount;
         baseToken.safeTransfer(receiver, request.amount);
         emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
     }
