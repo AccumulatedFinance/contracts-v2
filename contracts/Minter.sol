@@ -2175,7 +2175,6 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         require(ownerOf(withdrawalId) == msg.sender, "NotOwner");
         WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
         require(request.processed, "NotProcessedYet");
-        require(!request.claimed, "AlreadyClaimed");
         _burn(withdrawalId);
         request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals.sub(request.amount);
