@@ -2017,7 +2017,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
 
     function updateMinWithdrawal(uint256 newMin) public onlyOwner {
         require(newMin > 0, "ZeroMinWithdrawal");
-        require(newMin < type(uint256).max, "Uint256MaxExceed");
+        require(newMin < type(uint128).max, "NewMinTooBig");
         minWithdrawal = newMin;
         emit UpdateMinWithdrawal(minWithdrawal);
     }
