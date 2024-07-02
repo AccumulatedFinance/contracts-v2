@@ -551,7 +551,6 @@ library Subcall {
 
 contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
 
-    using SafeMath for uint256;
     using SafeTransferLib for IERC20;
 
     uint64 public lastReceiptId; // Incremented counter to determine receipt IDs
@@ -834,8 +833,8 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
         amount = Subcall.consensusTakeReceiptUndelegateDone(endReceiptId);
     }
 
-    function withdraw(address receiver) public view onlyOwner override {
-        revert(string(abi.encodePacked("Withdraw function disabled for ", receiver)));
+    function withdraw(address /* receiver */) public view onlyOwner override {
+        revert(string(abi.encodePacked("Withdrawals disabled")));
     }
 
     function getAllDelegations() public view returns (StakingAddress[] memory) {
