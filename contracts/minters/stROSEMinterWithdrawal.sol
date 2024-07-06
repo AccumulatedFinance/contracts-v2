@@ -816,9 +816,12 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
     function takeReceiptUndelegateDone(uint64 endReceiptId) public onlyOwner {
         // get all undelegate receiptIds containing endReceiptId
         uint64[] memory receiptIds = endReceiptIdToReceiptIds[endReceiptId];
+
+        require(receiptIds.length > 0, "NoReceiptsForEndReceiptId");
         
         for (uint64 i = 0; i < receiptIds.length; i++) {
-            UndelegationReceipt memory receipt = undelegationReceipts[i];
+            uint64 receiptId = receiptIds[i];
+            UndelegationReceipt memory receipt = undelegationReceipts[receiptId];
             require(receipt.exists == true, "ReceiptNotExists");
             require(receipt.receiptStartTaken == true, "NotStarted");
             require(receipt.receiptDoneTaken == false, "AlreadyTaken");
