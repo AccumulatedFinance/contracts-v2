@@ -596,8 +596,9 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
     mapping(StakingAddress => Delegation) private delegations; // (validator => Delegation)
     mapping(uint64 => DelegationReceipt) private delegationReceipts; // (receiptId => DelegationReceipt)
     mapping(uint64 => UndelegationReceipt) private undelegationReceipts; // (receiptId => UndelegationReceipt)
-    mapping(uint64 => uint64[]) public endReceiptIdToReceiptIds; // (endReceiptId => array of receiptIds)
+    mapping(uint64 => uint64[]) private endReceiptIdToReceiptIds; // (endReceiptId => array of receiptIds)
 
+    uint64[] private allEndReceiptIds;
     StakingAddress[] private allDelegations;
 
     constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstROSE", "unstROSE") {
@@ -802,6 +803,7 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
 
         // map receiptId to endReceiptId
         endReceiptIdToReceiptIds[endReceiptId].push(receiptId);
+        allEndReceiptIds.push(endReceiptId);
 
         emit TakeReceiptUndelegateStart(receiptId, epoch, endReceiptId);
     }
@@ -903,6 +905,14 @@ contract stROSEMinterWithdrawal is NativeMinterWithdrawal {
      */
     function getUndelegationReceipt(uint64 receiptId) public view returns (UndelegationReceipt memory receipt) {
         return undelegationReceipts[receiptId];
+    }
+
+    function getAllEndReceiptIds() public view returns (uint64[] memory) {
+        return allEndReceiptIds;
+    }
+
+    function getReceiptIdsFromEndReceiptId(uint64 endReceiptId) public view returns (uint64[] memory) {
+        return endReceiptIdToReceiptIds[endReceiptId];
     }
 
 }
