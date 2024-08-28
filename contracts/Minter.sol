@@ -1829,6 +1829,13 @@ contract NativeMinter is BaseMinter {
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
     event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
+    event FundsReceived(address sender, uint amount);
+
+    // receive() function to handle plain gas token transfers
+    receive() external payable {
+        emit FundsReceived(msg.sender, msg.value);
+    }
+
     function deposit(address receiver) public payable virtual nonReentrant {
         require(msg.value > 0, "ZeroDeposit");
         uint256 mintAmount = previewDeposit(msg.value);

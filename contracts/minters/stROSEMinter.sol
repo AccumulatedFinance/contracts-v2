@@ -638,13 +638,6 @@ contract stROSEMinter is NativeMinterWithdrawal {
     event EmergencyTakeReceiptUndelegateStart(uint64 receiptId, uint64 epoch, uint64 endReceiptId);
     event EmergencyTakeReceiptUndelegateDone(uint64 endReceiptId, uint128 amount);
 
-    event FundsReceived(address sender, uint amount);
-
-    // receive() function to handle plain Ether transfers
-    receive() external payable {
-        emit FundsReceived(msg.sender, msg.value);
-    }
-
     // Function to compare two StakingAddress values
     function _areEqual(StakingAddress a, StakingAddress b) internal pure returns (bool) {
         return StakingAddress.unwrap(a) == StakingAddress.unwrap(b);
