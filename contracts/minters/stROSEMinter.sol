@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
-import "../Minter.sol";
+import "../MinterV2.sol";
 
 /// 21 byte version-prefixed address (1 byte version, 20 bytes truncated digest).
 type StakingAddress is bytes21;
