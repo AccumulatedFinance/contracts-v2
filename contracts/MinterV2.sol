@@ -381,6 +381,7 @@ library SafeTransferLib {
         address to,
         uint256 amount
     ) internal {
+        require(address(token).code.length != 0, "token does not exist");
         bool success;
 
         assembly {
