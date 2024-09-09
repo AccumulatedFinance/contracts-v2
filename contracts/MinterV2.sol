@@ -1782,6 +1782,7 @@ abstract contract ERC721Enumerable is ERC721, IERC721Enumerable {
 abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
     uint256 public depositFee = 0; // possible fee to cover bridging costs
+    uint256 public minDeposit = 1; // min deposit amount (wei)
     uint256 public constant MAX_DEPOSIT_FEE = 500; // max deposit fee 500bp (5%)
     uint256 public constant FEE_DENOMINATOR = 10000; // fee denominator for basis points
 
@@ -1793,6 +1794,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     }
 
     event UpdateDepositFee(uint256 _depositFee);
+    event UpdateMinDeposit(uint256 _minDeposit);
     event TransferStakingTokenOwnership(address indexed _newOwner);
     event Mint(address indexed caller, address indexed receiver, uint256 amount);
 
@@ -1806,6 +1808,13 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
         require(newFee <= MAX_DEPOSIT_FEE, ">MaxFee");
         depositFee = newFee;
         emit UpdateDepositFee(newFee);
+    }
+
+    function updateMinDeposit(uint256 newMin) public onlyOwner {
+        require(newMin > 0, "ZeroMinDeposit");
+        require(newMin < type(uint128).max, "NewMinTooBig");
+        minDeposit = newMin;
+        emit UpdateMinDeposit(minDeposit);
     }
 
     function transferStakingTokenOwnership(address newOwner) public onlyOwner {
@@ -1837,7 +1846,7 @@ contract NativeMinter is BaseMinter {
     }
 
     function deposit(address receiver) public payable virtual nonReentrant {
-        require(msg.value > 0, "ZeroDeposit");
+        require(msg.value >= minDeposit, "LessThanMin");
         uint256 mintAmount = previewDeposit(msg.value);
         require(mintAmount > 0, "ZeroMintAmount");
         stakingToken.mint(receiver, mintAmount);
@@ -1869,7 +1878,7 @@ contract ERC20Minter is BaseMinter {
     event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
     function deposit(uint256 amount, address receiver) public virtual nonReentrant {
-        require(amount > 0, "ZeroDeposit");
+        require(amount >= minDeposit, "LessThanMin");
         uint256 mintAmount = previewDeposit(amount);
         require(mintAmount > 0, "ZeroMintAmount");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
