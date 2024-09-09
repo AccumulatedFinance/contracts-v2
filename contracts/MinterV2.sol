@@ -2171,7 +2171,6 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         require(ownerOf(withdrawalId) == msg.sender, "NotOwner");
         WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
         require(request.processed, "NotProcessedYet");
-        require(!request.claimed, "AlreadyClaimed");
         _burn(withdrawalId);
         request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals-request.amount;
