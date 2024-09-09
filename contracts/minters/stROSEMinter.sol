@@ -589,6 +589,8 @@ contract stROSEMinter is NativeMinterWithdrawal {
 
     using SafeTransferLib for IERC20;
 
+    uint256 public constant MIN_DELEGATION = 100e18; // 100 ROSE min delegation
+
     uint64 public nextReceiptId; // Incremented counter to determine receipt IDs
     
     mapping(StakingAddress => Delegation) private delegations; // (validator => Delegation)
@@ -687,7 +689,7 @@ contract stROSEMinter is NativeMinterWithdrawal {
      */
     function delegate(StakingAddress to, uint128 amount) public onlyOwner returns (uint64) {
         require(amount < type(uint128).max, ">MaxUint128");
-        require(amount > 0, "ZeroDelegate");
+        require(amount >= MIN_DELEGATION, "<MinDelegation");
         uint64 receiptId = nextReceiptId++;
         Subcall.consensusDelegate(to, amount, receiptId);
         delegationReceipts[receiptId] = DelegationReceipt({
