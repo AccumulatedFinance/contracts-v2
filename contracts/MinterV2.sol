@@ -2035,7 +2035,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
 
         uint256 withdrawalId = nextWithdrawalId++;
-        _safeMint(receiver, withdrawalId);
+        _mint(receiver, withdrawalId);
 
         _withdrawalRequests[withdrawalId] = WithdrawalRequest({
             amount: netAmount,
