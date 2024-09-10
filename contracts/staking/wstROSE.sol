@@ -1055,7 +1055,7 @@ contract wstROSE is xERC4626, ReentrancyGuard {
 
     /* ========== CONSTRUCTOR ========== */
     constructor(ERC20 _underlying, uint32 _rewardsCycleLength)
-        ERC4626(_underlying, "Wrapped stROSE", "wstROSE")
+        ERC4626(_underlying, "wstROSE", "wstROSE")
         xERC4626(_rewardsCycleLength)
     {}
 
@@ -1103,8 +1103,15 @@ contract wstROSE is xERC4626, ReentrancyGuard {
         bytes32 s
     ) external nonReentrant returns (uint256 shares) {
         uint256 amount = approveMax ? type(uint256).max : assets;
-        asset.permit(msg.sender, address(this), amount, deadline, v, r, s);
-        return (deposit(assets, receiver));
+        try asset.permit(msg.sender, address(this), amount, deadline, v, r, s) {
+            return (deposit(assets, receiver));
+        }
+        catch {
+            if (asset.allowance(msg.sender, address(this)) >=  amount) {
+                return (deposit(assets, receiver));
+            } else {
+                revert("PermitFailed");
+            }
+        }
     }
-
 }
