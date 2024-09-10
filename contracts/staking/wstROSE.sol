@@ -585,6 +585,15 @@ abstract contract ERC4626 is ERC20 {
     using FixedPointMathLib for uint256;
 
     /*//////////////////////////////////////////////////////////////
+                            CUSTOM ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error ExceededMaxDeposit(address receiver, uint256 assets, uint256 max);
+    error ExceededMaxMint(address receiver, uint256 shares, uint256 max);
+    error ExceededMaxWithdraw(address owner, uint256 assets, uint256 max);
+    error ExceededMaxRedeem(address owner, uint256 shares, uint256 max);
+
+    /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
@@ -617,6 +626,12 @@ abstract contract ERC4626 is ERC20 {
     //////////////////////////////////////////////////////////////*/
 
     function deposit(uint256 assets, address receiver) public virtual returns (uint256 shares) {
+
+        uint256 maxAssets = maxDeposit(receiver);
+        if (assets > maxAssets) {
+            revert ExceededMaxDeposit(receiver, assets, maxAssets);
+        }
+
         // Check for rounding error since we round down in previewDeposit.
         require((shares = previewDeposit(assets)) != 0, "ZERO_SHARES");
 
@@ -631,6 +646,12 @@ abstract contract ERC4626 is ERC20 {
     }
 
     function mint(uint256 shares, address receiver) public virtual returns (uint256 assets) {
+
+        uint256 maxShares = maxMint(receiver);
+        if (shares > maxShares) {
+            revert ExceededMaxMint(receiver, shares, maxShares);
+        }
+
         assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.
 
         // Need to transfer before minting or ERC777s could reenter.
@@ -648,6 +669,12 @@ abstract contract ERC4626 is ERC20 {
         address receiver,
         address owner
     ) public virtual returns (uint256 shares) {
+
+        uint256 maxAssets = maxWithdraw(owner);
+        if (assets > maxAssets) {
+            revert ExceededMaxWithdraw(owner, assets, maxAssets);
+        }
+
         shares = previewWithdraw(assets); // No need to check for rounding error, previewWithdraw rounds up.
 
         if (msg.sender != owner) {
@@ -670,6 +697,12 @@ abstract contract ERC4626 is ERC20 {
         address receiver,
         address owner
     ) public virtual returns (uint256 assets) {
+
+        uint256 maxShares = maxRedeem(owner);
+        if (shares > maxShares) {
+            revert ExceededMaxRedeem(owner, shares, maxShares);
+        }
+
         if (msg.sender != owner) {
             uint256 allowed = allowance[owner][msg.sender]; // Saves gas for limited approvals.
 
