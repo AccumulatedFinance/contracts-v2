@@ -4,7 +4,7 @@
 ### Audited contracts
 - LST/LRT minters (including LST withdrawal system)
 
-#### [MetaTrust Audit Report](audit-metatrust-2024-06-29.pdf)
+#### [MetaTrust Audit Report](https://raw.githubusercontent.com/AccumulatedFinance/contracts-v2/refs/heads/master/audits/audit-metatrust-2024-06-29.pdf)
 
 ## September 2024 — Hats Finance Audit Competition
 ### Audited contracts
