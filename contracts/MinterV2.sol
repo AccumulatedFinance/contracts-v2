@@ -2236,10 +2236,29 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
 
             emit ProcessWithdrawal(withdrawalId);
         }
-        require(totalWithdrawals <= totalPendingWithdrawals, "TotalWithrawalAmountExceeded");
+        require(totalWithdrawals <= totalPendingWithdrawals, "TotalWithdrawalAmountExceeded");
         stakingToken.burn(totalWithdrawals);
         totalPendingWithdrawals = totalPendingWithdrawals-totalWithdrawals;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+totalWithdrawals;
+    }
+
+    function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
+
+        require(withdrawalId > 0, "CannotBeFirstWithdrawal");
+        // check: previous withdrawal must be processed
+        WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
+        require(prevRequest.processed, "PreviousNotProcessed");
+
+        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
+        require(request.amount > 0, "ZeroAmount");
+        require(!request.processed, "AlreadyProcessed");
+        require(!request.claimed, "AlreadyClaimed");
+        require(request.amount <= totalPendingWithdrawals, "WithdrawalAmountExceeded");
+        request.processed = true;
+        stakingToken.burn(request.amount);
+        totalPendingWithdrawals = totalPendingWithdrawals-request.amount;
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+request.amount;
+        emit ProcessWithdrawal(withdrawalId);
     }
 
     function collectWithdrawalFees(address receiver) public onlyOwner {
