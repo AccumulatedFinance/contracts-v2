@@ -2274,49 +2274,6 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         return balance;
     }
 
-    function previewProcessWithdrawal(uint256 withdrawalId) external view returns (bool) {
-        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
-
-        // additional checks for public processing
-        uint256 balance = balanceAvailable();
-        if (request.amount > balance) { return false; } // WithdrawalAmountExceededBalanceAvailable
-        if (withdrawalId > 0) {
-            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
-            if (!prevRequest.processed) { return false; } // PreviousNotProcessed
-        }
-
-        // usual checks
-        if (request.amount == 0) { return false; } // ZeroAmount
-        if (request.processed) { return false; } // AlreadyProcessed
-        if (request.claimed) { return false; } // AlreadyClaimed
-        if (request.amount > totalPendingWithdrawals) { return false; } // TotalWithdrawalAmountExceeded
-
-        return true;
-    }
-
-    function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
-        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
-
-        // additional checks for public processing
-        uint256 balance = balanceAvailable();
-        require(request.amount <= balance, "WithdrawalAmountExceededBalanceAvailable");
-        if (withdrawalId > 0) {
-            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
-            require(prevRequest.processed, "PreviousNotProcessed");
-        }
-        // usual checks
-        require(request.amount > 0, "ZeroAmount");
-        require(!request.processed, "AlreadyProcessed");
-        require(!request.claimed, "AlreadyClaimed");
-        require(request.amount <= totalPendingWithdrawals, "TotalWithdrawalAmountExceeded");
-
-        request.processed = true;
-        stakingToken.burn(request.amount);
-        totalPendingWithdrawals = totalPendingWithdrawals-request.amount;
-        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+request.amount;
-        emit ProcessWithdrawal(withdrawalId);
-    }
-
     function withdraw(address receiver) public virtual onlyOwner override {
         uint256 balance = balanceAvailable();
         require(balance > 0, "BalanceNotEnough");
@@ -2360,50 +2317,6 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         }
 
         return balance;
-    }
-
-    function previewProcessWithdrawal(uint256 withdrawalId) external view returns (bool) {
-        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
-
-        // additional checks for public processing
-        uint256 balance = balanceAvailable();
-        if (request.amount > balance) { return false; } // WithdrawalAmountExceededBalanceAvailable
-        if (withdrawalId > 0) {
-            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
-            if (!prevRequest.processed) { return false; } // PreviousNotProcessed
-        }
-
-        // usual checks
-        if (request.amount == 0) { return false; } // ZeroAmount
-        if (request.processed) { return false; } // AlreadyProcessed
-        if (request.claimed) { return false; } // AlreadyClaimed
-        if (request.amount > totalPendingWithdrawals) { return false; } // TotalWithdrawalAmountExceeded
-
-        return true;
-    }
-
-    function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
-        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
-
-        // additional checks for public processing
-        uint256 balance = balanceAvailable();
-        require(request.amount <= balance, "WithdrawalAmountExceededBalanceAvailable");
-        if (withdrawalId > 0) {
-            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
-            require(prevRequest.processed, "PreviousNotProcessed");
-        }
-
-        // usual checks
-        require(request.amount > 0, "ZeroAmount");
-        require(!request.processed, "AlreadyProcessed");
-        require(!request.claimed, "AlreadyClaimed");
-        require(request.amount <= totalPendingWithdrawals, "TotalWithdrawalAmountExceeded");
-
-        request.processed = true;
-        stakingToken.burn(request.amount);
-        totalPendingWithdrawals = totalPendingWithdrawals-request.amount;
-        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+request.amount;
-        emit ProcessWithdrawal(withdrawalId);
     }
 
     function withdraw(address receiver) public virtual onlyOwner override {
