@@ -2091,7 +2091,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     uint256 public totalPendingWithdrawals = 0; // total pending withdrawals
     uint256 public totalUnclaimedWithdrawals = 0; // total unclaimed withdrawals
     uint256 public totalWithdrawalFees = 0; // total fees accumulated
-    uint256 public nextWithdrawalId = 0; // counter for withdrawal IDs
+    uint256 public nextWithdrawalId = 1; // counter for withdrawal IDs
     string private baseURI; // base url for nft images
 
     struct WithdrawalRequest {
@@ -2165,6 +2165,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     }
 
     // Minter
+    function balanceAvailable() public view virtual returns (uint256);
 
     function previewWithdrawal(uint256 amount) public view virtual returns (uint256) {
         uint256 feeAmount = amount*withdrawalFee/FEE_DENOMINATOR;
@@ -2193,16 +2194,35 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         uint256 withdrawalId = nextWithdrawalId++;
         _mint(receiver, withdrawalId);
 
-        _withdrawalRequests[withdrawalId] = WithdrawalRequest({
-            amount: netAmount,
-            processed: false,
-            claimed: false
-        });
+        emit RequestWithdrawal(address(msg.sender), receiver, amount, withdrawalId);
 
-        totalPendingWithdrawals = totalPendingWithdrawals+netAmount;
         totalWithdrawalFees = totalWithdrawalFees+amount-netAmount;
 
-        emit RequestWithdrawal(address(msg.sender), receiver, amount, withdrawalId);
+        // check if withdrawal will be auto-processed
+        uint256 balance = balanceAvailable();
+        bool isPreviousProcessed = (withdrawalId == 1) || _withdrawalRequests[withdrawalId-1].processed;
+
+        // if enough tokens & previous is processed => auto-process this withdrawal
+        if ((amount <= balance) && (isPreviousProcessed)) {
+            stakingToken.burn(netAmount);
+            totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+netAmount;
+            _withdrawalRequests[withdrawalId] = WithdrawalRequest({
+                amount: netAmount,
+                processed: true,
+                claimed: false
+            });
+            emit ProcessWithdrawal(withdrawalId);
+        }
+        // or withdrawal is pending
+        else {
+            totalPendingWithdrawals = totalPendingWithdrawals+netAmount;
+            _withdrawalRequests[withdrawalId] = WithdrawalRequest({
+                amount: netAmount,
+                processed: false,
+                claimed: false
+            });
+        }
+
     }
 
     function getWithdrawalRequest(uint256 withdrawalId) public view returns (WithdrawalRequest memory) {
@@ -2261,7 +2281,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         string memory _baseURL
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol, _baseURL) NativeMinter(_stakingToken) {}
 
-    function balanceAvailable() public view virtual returns (uint256) {
+    function balanceAvailable() public view override returns (uint256) {
         uint256 availableBalance = address(this).balance;
         uint256 balance;
 
@@ -2306,7 +2326,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         string memory _baseURL
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol, _baseURL) ERC20Minter(_baseToken, _stakingToken) {}
 
-    function balanceAvailable() public view virtual returns (uint256) {
+    function balanceAvailable() public view override returns (uint256) {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         uint256 balance;
 
