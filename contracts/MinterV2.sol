@@ -2274,6 +2274,26 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         return balance;
     }
 
+    function previewProcessWithdrawal(uint256 withdrawalId) external view returns (bool) {
+        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
+
+        // additional checks for public processing
+        uint256 balance = balanceAvailable();
+        if (request.amount > balance) { return false; } // WithdrawalAmountExceededBalanceAvailable
+        if (withdrawalId > 0) {
+            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
+            if (!prevRequest.processed) { return false; } // PreviousNotProcessed
+        }
+
+        // usual checks
+        if (request.amount == 0) { return false; } // ZeroAmount
+        if (request.processed) { return false; } // AlreadyProcessed
+        if (request.claimed) { return false; } // AlreadyClaimed
+        if (request.amount > totalPendingWithdrawals) { return false; } // TotalWithdrawalAmountExceeded
+
+        return true;
+    }
+
     function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
         WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
 
@@ -2340,6 +2360,26 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         }
 
         return balance;
+    }
+
+    function previewProcessWithdrawal(uint256 withdrawalId) external view returns (bool) {
+        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
+
+        // additional checks for public processing
+        uint256 balance = balanceAvailable();
+        if (request.amount > balance) { return false; } // WithdrawalAmountExceededBalanceAvailable
+        if (withdrawalId > 0) {
+            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
+            if (!prevRequest.processed) { return false; } // PreviousNotProcessed
+        }
+
+        // usual checks
+        if (request.amount == 0) { return false; } // ZeroAmount
+        if (request.processed) { return false; } // AlreadyProcessed
+        if (request.claimed) { return false; } // AlreadyClaimed
+        if (request.amount > totalPendingWithdrawals) { return false; } // TotalWithdrawalAmountExceeded
+
+        return true;
     }
 
     function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
