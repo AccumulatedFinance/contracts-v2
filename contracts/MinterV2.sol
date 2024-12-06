@@ -2242,25 +2242,6 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+totalWithdrawals;
     }
 
-    function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
-
-        require(withdrawalId > 0, "CannotBeFirstWithdrawal");
-        // check: previous withdrawal must be processed
-        WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
-        require(prevRequest.processed, "PreviousNotProcessed");
-
-        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
-        require(request.amount > 0, "ZeroAmount");
-        require(!request.processed, "AlreadyProcessed");
-        require(!request.claimed, "AlreadyClaimed");
-        require(request.amount <= totalPendingWithdrawals, "WithdrawalAmountExceeded");
-        request.processed = true;
-        stakingToken.burn(request.amount);
-        totalPendingWithdrawals = totalPendingWithdrawals-request.amount;
-        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+request.amount;
-        emit ProcessWithdrawal(withdrawalId);
-    }
-
     function collectWithdrawalFees(address receiver) public onlyOwner {
         require(totalWithdrawalFees > 0, "ZeroFees");
         uint256 feesToCollect = totalWithdrawalFees;
@@ -2291,6 +2272,29 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         }
 
         return balance;
+    }
+
+    function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
+        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
+
+        // additional checks for public processing
+        uint256 balance = balanceAvailable();
+        require(request.amount <= balance, "WithdrawalAmountExceededBalanceAvailable");
+        if (withdrawalId > 0) {
+            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
+            require(prevRequest.processed, "PreviousNotProcessed");
+        }
+        // usual checks
+        require(request.amount > 0, "ZeroAmount");
+        require(!request.processed, "AlreadyProcessed");
+        require(!request.claimed, "AlreadyClaimed");
+        require(request.amount <= totalPendingWithdrawals, "TotalWithdrawalAmountExceeded");
+
+        request.processed = true;
+        stakingToken.burn(request.amount);
+        totalPendingWithdrawals = totalPendingWithdrawals-request.amount;
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+request.amount;
+        emit ProcessWithdrawal(withdrawalId);
     }
 
     function withdraw(address receiver) public virtual onlyOwner override {
@@ -2336,6 +2340,30 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         }
 
         return balance;
+    }
+
+    function processWithdrawal(uint256 withdrawalId) public virtual nonReentrant {
+        WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
+
+        // additional checks for public processing
+        uint256 balance = balanceAvailable();
+        require(request.amount <= balance, "WithdrawalAmountExceededBalanceAvailable");
+        if (withdrawalId > 0) {
+            WithdrawalRequest storage prevRequest = _withdrawalRequests[withdrawalId-1];
+            require(prevRequest.processed, "PreviousNotProcessed");
+        }
+
+        // usual checks
+        require(request.amount > 0, "ZeroAmount");
+        require(!request.processed, "AlreadyProcessed");
+        require(!request.claimed, "AlreadyClaimed");
+        require(request.amount <= totalPendingWithdrawals, "TotalWithdrawalAmountExceeded");
+
+        request.processed = true;
+        stakingToken.burn(request.amount);
+        totalPendingWithdrawals = totalPendingWithdrawals-request.amount;
+        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+request.amount;
+        emit ProcessWithdrawal(withdrawalId);
     }
 
     function withdraw(address receiver) public virtual onlyOwner override {
