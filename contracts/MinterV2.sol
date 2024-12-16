@@ -1903,7 +1903,8 @@ abstract contract ERC721Enumerable is ERC721, IERC721Enumerable {
 // BaseMinter
 abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
-    string public VERSION = "v2.0.0";
+    string public constant VERSION = "v2.0.0";
+    string public MINTER_TYPE = "base";
 
     uint256 public depositFee = 0; // possible fee to cover bridging costs
     uint256 public minDeposit = 1; // min deposit amount (wei)
@@ -1921,6 +1922,10 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     event UpdateMinDeposit(uint256 _minDeposit);
     event TransferStakingTokenOwnership(address indexed _newOwner);
     event Mint(address indexed caller, address indexed receiver, uint256 amount);
+
+    function getVersion() public view virtual returns (string memory) {
+        return string(abi.encodePacked(VERSION, "-", MINTER_TYPE));
+    }
 
     function previewDeposit(uint256 amount) public view virtual returns (uint256) {
         uint256 feeAmount = amount*depositFee/FEE_DENOMINATOR;
@@ -1957,7 +1962,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
 contract NativeMinter is BaseMinter {
 
     constructor(address _stakingToken) BaseMinter(_stakingToken) {
-        VERSION = string(abi.encodePacked(VERSION, ".native"));
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ".native"));
     }
 
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
@@ -1996,7 +2001,7 @@ contract ERC20Minter is BaseMinter {
     IERC20 public baseToken;
 
     constructor(address _baseToken, address _stakingToken) BaseMinter(_stakingToken) {
-        VERSION = string(abi.encodePacked(VERSION, ".erc20"));
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ".erc20"));
         baseToken = IERC20(_baseToken);
     }
 
@@ -2028,7 +2033,7 @@ abstract contract BaseMinterRedeem is BaseMinter {
     uint256 public constant MAX_REDEEM_FEE = 500; // max redeem fee 500bp (5%)
 
     constructor() {
-        VERSION = string(abi.encodePacked(VERSION, ".redeem"));
+        MINTER_TYPE = "redeem";
     }
 
     event UpdateRedeemFee(uint256 _redeemFee);
@@ -2122,7 +2127,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         string memory _unstTokenSymbol,
         string memory _unstTokenBaseURI
     ) ERC721(_unstTokenName, _unstTokenSymbol) {
-        VERSION = string(abi.encodePacked(VERSION, ".withdrawal"));
+        MINTER_TYPE = "withdrawal";
         baseURI = _unstTokenBaseURI;
     }
 
