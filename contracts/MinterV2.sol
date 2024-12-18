@@ -1924,7 +1924,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     event Mint(address indexed caller, address indexed receiver, uint256 amount);
 
     function getVersion() public view virtual returns (string memory) {
-        return string(abi.encodePacked(VERSION, "-", MINTER_TYPE));
+        return string(abi.encodePacked(VERSION, ":", MINTER_TYPE));
     }
 
     function previewDeposit(uint256 amount) public view virtual returns (uint256) {
@@ -1962,7 +1962,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
 contract NativeMinter is BaseMinter {
 
     constructor(address _stakingToken) BaseMinter(_stakingToken) {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ".native"));
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ":native"));
     }
 
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
@@ -2001,7 +2001,7 @@ contract ERC20Minter is BaseMinter {
     IERC20 public baseToken;
 
     constructor(address _baseToken, address _stakingToken) BaseMinter(_stakingToken) {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ".erc20"));
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ":erc20"));
         baseToken = IERC20(_baseToken);
     }
 
