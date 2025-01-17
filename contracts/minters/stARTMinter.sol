@@ -5,7 +5,9 @@ import "../MinterV2.sol";
 
 contract stARTMinterWithdrawal is NativeMinterWithdrawal {
 
-    constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstART", "unstART", "https://api.accumulated.finance/v1/nft") {
+    string public BASE_URI = "https://api.accumulated.finance/v1/nft";
+
+    constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstART", "unstART", BASE_URI) {
     }
 
 }
