@@ -600,7 +600,6 @@ contract stROSEMinter is NativeMinterWithdrawal {
     StakingAddress[] private allDelegations;
 
     constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstROSE", "unstROSE", "https://api.accumulated.finance/v1/nft") {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ".rose"));
         // Due to an oddity in the oasis-cbor package, we start at 2**32
         // Otherwise uint64 parsing will fail and the message is rejected
         nextReceiptId = 4294967296;
