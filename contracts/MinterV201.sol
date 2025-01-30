@@ -2307,7 +2307,9 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
     }
 
     function withdraw(uint256 amount, address receiver) public virtual onlyOwner override {
+        uint256 balance = balanceAvailable();
         require(amount > 0, "ZeroWithdraw");
+        require(amount <= balance, "MoreThanAvailable");
         SafeTransferLib.safeTransferETH(receiver, amount);
         emit Withdraw(address(msg.sender), receiver, amount);
     }
@@ -2351,7 +2353,9 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
     }
 
     function withdraw(uint256 amount, address receiver) public virtual onlyOwner override {
+        uint256 balance = balanceAvailable();
         require(amount > 0, "ZeroWithdraw");
+        require(amount <= balance, "MoreThanAvailable");
         baseToken.safeTransfer(receiver, amount);
         emit Withdraw(address(msg.sender), receiver, amount);
     }
