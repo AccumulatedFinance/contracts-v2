@@ -547,9 +547,8 @@ abstract contract ACFIPublicSale is Ownable, ReentrancyGuard {
     mapping(address => uint256) public tokenCaps; // 0 = not whitelisted, >0 = cap
 
     constructor(address[] memory tokens, uint256[] memory caps) {
-        require(tokens.length == caps.length, "Mismatched inputs");
+        require(tokens.length == caps.length, "MismatchedInputs");
         for (uint256 i = 0; i < tokens.length; i++) {
-            require(caps[i] > 0, "Cap must be > 0");
             tokenCaps[tokens[i]] = caps[i];
         }
     }
