@@ -553,7 +553,7 @@ contract ACFIPublicSale is Ownable, ReentrancyGuard {
         }
     }
 
-    event SetTokenCap(address _token, uint256 _cap);
+    event SetTokenCap(address indexed token, uint256 cap);
     event Deposit(address indexed receiver, address indexed token, uint256 amount);
     event Withdraw(address indexed receiver, address indexed token, uint256 amount);
 
