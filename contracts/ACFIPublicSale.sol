@@ -554,24 +554,24 @@ contract ACFIPublicSale is Ownable, ReentrancyGuard {
     }
 
     event SetTokenCap(address indexed token, uint256 cap);
-    event Deposit(address indexed receiver, address indexed token, uint256 amount);
+    event Deposit(address indexed receiver, address indexed token, uint256 amount, bytes32 invite);
     event Withdraw(address indexed receiver, address indexed token, uint256 amount);
 
-    function deposit(address receiver) public payable nonReentrant {
+    function deposit(address receiver, bytes32 invite) public payable nonReentrant {
         uint256 cap = tokenCaps[address(0)];
         require(msg.value > 0, "ZeroValue");
         require(msg.value <= cap, "ExceedsCap");
         tokenCaps[address(0)] -= msg.value; // Reduce cap
-        emit Deposit(receiver, address(0), msg.value);
+        emit Deposit(receiver, address(0), msg.value, invite);
     }
 
-    function deposit(address token, uint256 amount, address receiver) public nonReentrant {
+    function deposit(address token, uint256 amount, address receiver, bytes32 invite) public nonReentrant {
         uint256 cap = tokenCaps[token];
         require(amount > 0, "ZeroAmount");
         require(amount <= cap, "ExceedsCap");
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         tokenCaps[token] -= amount; // Reduce cap
-        emit Deposit(receiver, token, amount);
+        emit Deposit(receiver, token, amount, invite);
     }
 
     function setTokenCap(address token, uint256 cap) public onlyOwner {
