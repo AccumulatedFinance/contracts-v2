@@ -539,36 +539,40 @@ abstract contract Ownable is Context {
 }
 
 
-// ACFIPublicSale
-contract ACFIPublicSale is Ownable, ReentrancyGuard {
+// TokenPresale
+contract TokenPresale is Ownable, ReentrancyGuard {
     
     using SafeERC20 for IERC20;
 
     mapping(address => uint256) public tokenCaps; // 0 = not whitelisted, >0 = cap
+    mapping(address => uint256) public minDeposits;
 
-    constructor(address[] memory tokens, uint256[] memory caps) {
+    constructor(address[] memory tokens, uint256[] memory caps, uint256[] memory mins) {
         require(tokens.length == caps.length, "MismatchedInputs");
+        require(tokens.length == mins.length, "MismatchedInputs");
         for (uint256 i = 0; i < tokens.length; i++) {
             tokenCaps[tokens[i]] = caps[i];
+            minDeposits[tokens[i]] = mins[i];
         }
     }
 
     event SetTokenCap(address indexed token, uint256 cap);
+    event SetMinDeposit(address indexed token, uint256 min);
     event Deposit(address indexed receiver, address indexed token, uint256 amount, bytes32 invite);
     event Withdraw(address indexed receiver, address indexed token, uint256 amount);
 
     function deposit(address receiver, bytes32 invite) public payable nonReentrant {
         uint256 cap = tokenCaps[address(0)];
-        require(msg.value > 0, "ZeroValue");
         require(msg.value <= cap, "ExceedsCap");
+        require(msg.value >= minDeposits[address(0)], "LessThanMin");
         tokenCaps[address(0)] -= msg.value; // Reduce cap
         emit Deposit(receiver, address(0), msg.value, invite);
     }
 
     function deposit(address token, uint256 amount, address receiver, bytes32 invite) public nonReentrant {
         uint256 cap = tokenCaps[token];
-        require(amount > 0, "ZeroAmount");
         require(amount <= cap, "ExceedsCap");
+        require(amount >= minDeposits[token], "LessThanMin");
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         tokenCaps[token] -= amount; // Reduce cap
         emit Deposit(receiver, token, amount, invite);
@@ -577,6 +581,11 @@ contract ACFIPublicSale is Ownable, ReentrancyGuard {
     function setTokenCap(address token, uint256 cap) public onlyOwner {
         tokenCaps[token] = cap; // If cap = 0, effectively removes token
         emit SetTokenCap(token, cap);
+    }
+
+    function setMinDeposit(address token, uint256 min) public onlyOwner {
+        minDeposits[token] = min;
+        emit SetMinDeposit(token, min);
     }
 
     function withdraw(uint256 amount, address receiver) public onlyOwner {
