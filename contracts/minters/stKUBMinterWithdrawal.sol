@@ -7,6 +7,7 @@ interface IValidatorShare {
     function delegate() external payable;
     function undelegate(uint256 amount) external;
     function claimRewards() external;
+    function getLiquidRewards(address delegator) external view returns (uint256);
     function getUnclaimedRewards(address delegator) external view returns (uint256);
     function balanceOf(address account) external view returns (uint256); // ERC-20 balance function
 }
@@ -64,12 +65,20 @@ contract stKUBMinterWithdrawal is NativeMinterWithdrawal {
         IValidatorShare(validator).claimRewards();
     }
 
-    // Get unclaimed rewards for a specific validator
+    // Get unclaimed rewards for a specific validator (old method)
     function getUnclaimedRewards(address validator) external view returns (uint256) {
         require(isValidator(validator), "Invalid validator");
 
         // Call the validator's getUnclaimedRewards function
         return IValidatorShare(validator).getUnclaimedRewards(address(this));
+    }
+
+    // Get unclaimed rewards for a specific validator (new method)
+    function getLiquidRewards(address validator) external view returns (uint256) {
+        require(isValidator(validator), "Invalid validator");
+
+        // Call the validator's getUnclaimedRewards function
+        return IValidatorShare(validator).getLiquidRewards(address(this));
     }
 
     // Get delegated amount for a specific validator
