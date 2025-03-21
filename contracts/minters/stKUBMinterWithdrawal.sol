@@ -72,28 +72,12 @@ contract stKUBMinterWithdrawal is NativeMinterWithdrawal {
         return IValidatorShare(validator).getUnclaimedRewards(address(this));
     }
 
-    // Get total unclaimed rewards across all validators
-    function getTotalUnclaimedRewards() external view returns (uint256 totalRewards) {
-        totalRewards = 0;
-        for (uint256 i = 0; i < validators.length; i++) {
-            totalRewards += IValidatorShare(validators[i]).getUnclaimedRewards(address(this));
-        }
-    }
-
     // Get delegated amount for a specific validator
     function getDelegatedAmount(address validator) public view returns (uint256) {
         require(isValidator(validator), "Invalid validator");
 
         // Call the validator's balanceOf function to get the delegated amount
         return IValidatorShare(validator).balanceOf(address(this));
-    }
-
-    // Get total delegated amount across all validators
-    function getTotalDelegatedAmount() external view returns (uint256 totalDelegated) {
-        totalDelegated = 0;
-        for (uint256 i = 0; i < validators.length; i++) {
-            totalDelegated += IValidatorShare(validators[i]).balanceOf(address(this));
-        }
     }
 
     // Check if an address is a valid validator
