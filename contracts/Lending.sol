@@ -297,13 +297,12 @@ abstract contract Ownable is Context {
 }
 
 abstract contract BaseLending is Ownable, ReentrancyGuard {
-
     using SafeTransferLib for IERC4626;
 
     string public constant VERSION = "v1.0.0";
     string public LENDING_TYPE = "base";
 
-    IERC4626 public immutable collateral; // ERC4626 collateral token
+    IERC4626 public collateral; // ERC4626 collateral token
     uint256 public totalBorrowed; // Total native asset borrowed across all users
     uint256 public totalDepositedAsset; // Total native asset deposited by suppliers
     mapping(address => uint256) public userAssetDeposits; // User's deposited native asset (supply side)
@@ -311,6 +310,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
     mapping(address => uint256) public userBorrowed; // User's borrowed native asset amount
 
     uint256 public minDeposit = 1e15; // Minimum native asset deposit (0.001 units)
+    uint256 public constant PRICE_PER_SHARE_DECIMALS = 18; // pricePerShare is always 18 decimals
 
     // Events
     event UpdateMinDeposit(uint256 _minDeposit);
@@ -329,7 +329,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         return string(abi.encodePacked(VERSION, ":", LENDING_TYPE));
     }
 
-    // Deposit native asset - Supply side (unchanged, no token transfer)
     function depositAsset() external payable nonReentrant {
         require(msg.value >= minDeposit, "BelowMinDeposit");
         userAssetDeposits[msg.sender] = userAssetDeposits[msg.sender] + msg.value;
@@ -337,7 +336,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         emit DepositAsset(msg.sender, msg.value);
     }
 
-    // Withdraw native asset - Supply side (unchanged, no token transfer)
     function withdrawAsset(uint256 amount) external nonReentrant {
         require(amount > 0, "ZeroAmount");
         require(userAssetDeposits[msg.sender] >= amount, "InsufficientDeposit");
@@ -349,16 +347,14 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         emit WithdrawAsset(msg.sender, amount);
     }
 
-    // Deposit collateral token (ERC4626) - Borrow side (rewritten)
     function depositCollateral(uint256 amount) external nonReentrant {
-        require(amount > 0, "LessThanMin"); // Assuming no minDeposit for collateral, using 0 as min
-        require(amount > 0, "ZeroAmount"); // Redundant but matches pattern
+        require(amount > 0, "LessThanMin");
+        require(amount > 0, "ZeroAmount");
         collateral.safeTransferFrom(msg.sender, address(this), amount);
         userCollateral[msg.sender] = userCollateral[msg.sender] + amount;
         emit DepositCollateral(msg.sender, amount);
     }
 
-    // Borrow native asset against collateral - Borrow side (unchanged, no token transfer)
     function borrow(uint256 amount) external nonReentrant {
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
@@ -372,7 +368,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         emit Borrow(msg.sender, amount);
     }
 
-    // Repay borrowed native asset - Borrow side (unchanged, no token transfer)
     function repay() external payable nonReentrant {
         require(msg.value > 0, "ZeroAmount");
         uint256 debt = userBorrowed[msg.sender];
@@ -387,7 +382,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         }
     }
 
-    // Withdraw collateral token (ERC4626) - Borrow side (rewritten)
     function withdrawCollateral(uint256 amount) external nonReentrant {
         require(amount > 0, "LessThanMin");
         require(userCollateral[msg.sender] >= amount, "InsufficientCollateral");
@@ -399,21 +393,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         emit WithdrawCollateral(msg.sender, amount);
     }
 
-    // Read methods (unchanged)
-    function getUserAssetBalance(address user) external view returns (uint256) {
-        return userAssetDeposits[user];
-    }
-
-    function getUserCollateralBalance(address user) external view returns (uint256) {
-        return userCollateral[user];
-    }
-
+    // Read methods
     function getUserCollateralValue(address user) external view returns (uint256) {
         return _getCollateralValue(user);
-    }
-
-    function getUserBorrowedAmount(address user) external view returns (uint256) {
-        return userBorrowed[user];
     }
 
     function getMaxBorrowable(address user) external view returns (uint256) {
@@ -429,7 +411,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         uint256 borrowed = userBorrowed[user];
         if (borrowed == 0) return type(uint256).max;
         uint256 collateralValue = _getCollateralValue(user);
-        return collateralValue * 1e18 / borrowed;
+        return (collateralValue * 10**PRICE_PER_SHARE_DECIMALS) / borrowed; // Precision factor
     }
 
     function previewMaxCollateralWithdrawal(address user) external view returns (uint256) {
@@ -438,7 +420,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         uint256 collateralValue = _getCollateralValue(user);
         if (collateralValue <= borrowed) return 0;
         uint256 excessValue = collateralValue - borrowed;
-        uint256 excessShares = excessValue * 1e18 / collateral.pricePerShare();
+        uint256 excessShares = (excessValue * 10**PRICE_PER_SHARE_DECIMALS) / collateral.pricePerShare();
         return excessShares > userCollateral[user] ? userCollateral[user] : excessShares;
     }
 
@@ -461,10 +443,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
     }
 
     function _getCollateralValueFromShares(uint256 shares) internal view returns (uint256) {
-        return shares * collateral.pricePerShare() / 1e18;
+        return (shares * collateral.pricePerShare()) / 10**PRICE_PER_SHARE_DECIMALS;
     }
 
-    // Admin function
     function updateMinDeposit(uint256 newMin) external onlyOwner {
         require(newMin > 0, "ZeroMinDeposit");
         require(newMin < type(uint128).max, "MinTooLarge");
@@ -472,6 +453,14 @@ abstract contract BaseLending is Ownable, ReentrancyGuard {
         emit UpdateMinDeposit(newMin);
     }
 
-    // Fallback to receive native asset
     receive() external payable {}
+}
+
+// NativeLending contract accepts network coin as a borrowable asset for lending
+contract NativeLending is BaseLending {
+
+    constructor(address _collateralToken) BaseLending(_collateralToken) {
+        LENDING_TYPE = "native";
+    }
+
 }
