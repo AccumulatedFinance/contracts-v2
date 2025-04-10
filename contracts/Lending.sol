@@ -829,11 +829,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         lastUpdateTimestamp = block.timestamp;
     }
 
-    // Override decimals to match collateral
-    function decimals() public view virtual override returns (uint8) {
-        return collateral.decimals();
-    }
-
     // Calculate price per share (liquidity index)
     function getPricePerShare() public view returns (uint256) {
         if (baseTotalSupply == 0) return 10**18; // 1:1 initially (1 token = 1 ETH)
