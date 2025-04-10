@@ -798,8 +798,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public borrowingRateMultiplier = 0.5 * 10**18; // Non-linear multiplier
     uint256 public maxBorrowingRate = 0.15 * 10**18; // 15% cap
 
-    // Accumulated borrowing interest available for lenders
-    uint256 public accumulatedBorrowingInterest;
+    // Interest tracking
+    uint256 public accumulatedBorrowingInterest; // Accrued borrowing interest
+
+    // Base balances for rebasing (unscaled values)
+    mapping(address => uint256) private baseBalances; // Unscaled balances
+    uint256 private baseTotalSupply; // Unscaled total supply
 
     // Events
     event Deposit(address indexed caller, address indexed receiver, uint256 assets, uint256 shares);
@@ -812,6 +816,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event UpdateLTV(uint256 newLTV);
     event UpdateLendingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
     event UpdateBorrowingRateParams(uint256 multiplier);
+    event Recover(address indexed receiver, uint256 amount);
 
     constructor(IERC4626 _collateralToken)
         ERC20(
@@ -829,38 +834,107 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return collateral.decimals();
     }
 
-    // Simplified deposit/withdraw for ERC20 pool token
-    function deposit(address receiver) external payable nonReentrant {
-        require(msg.value >= minDeposit, "BelowMinDeposit");
-        uint256 shares = msg.value; // 1:1 initially
-        totalDepositedAsset += msg.value;
-        _mint(receiver, shares);
-        emit Deposit(msg.sender, receiver, msg.value, shares);
+    // Calculate price per share (liquidity index)
+    function getPricePerShare() public view returns (uint256) {
+        if (baseTotalSupply == 0) return 10**18; // 1:1 initially (1 token = 1 ETH)
+        uint256 totalEth = totalDepositedAsset + totalBorrowed + accumulatedBorrowingInterest + getTotalPendingInterest();
+        return (totalEth * 10**18) / baseTotalSupply;
     }
 
-    function withdraw(uint256 shares, address receiver) external nonReentrant {
-        require(shares > 0, "ZeroAmount");
+    // Override balanceOf to return scaled balance
+    function balanceOf(address account) public view virtual override returns (uint256) {
+        return (baseBalances[account] * getPricePerShare()) / 10**18;
+    }
+
+    // Override totalSupply to return scaled total supply
+    function totalSupply() public view virtual override returns (uint256) {
+        return (baseTotalSupply * getPricePerShare()) / 10**18;
+    }
+
+    // Override transfer to adjust for price per share
+    function transfer(address recipient, uint256 amount) public virtual override returns (bool) {
+        uint256 baseAmount = (amount * 10**18) / getPricePerShare();
+        require(baseAmount <= baseBalances[msg.sender], "InsufficientBalance");
+        baseBalances[msg.sender] -= baseAmount;
+        baseBalances[recipient] += baseAmount;
+        emit Transfer(msg.sender, recipient, amount);
+        return true;
+    }
+
+    // Override transferFrom to adjust for price per share
+    function transferFrom(address sender, address recipient, uint256 amount) public virtual override returns (bool) {
+        uint256 baseAmount = (amount * 10**18) / getPricePerShare();
+        require(baseAmount <= baseBalances[sender], "InsufficientBalance");
+
+        uint256 currentAllowance = allowance(sender, msg.sender);
+        require(currentAllowance >= amount, "InsufficientAllowance");
+        _approve(sender, msg.sender, currentAllowance - amount);
+
+        baseBalances[sender] -= baseAmount;
+        baseBalances[recipient] += baseAmount;
+        emit Transfer(sender, recipient, amount);
+        return true;
+    }
+
+    // Override _mint to update base balances
+    function _mint(address account, uint256 amount) internal virtual override {
+        baseTotalSupply += amount;
+        baseBalances[account] += amount;
+        emit Transfer(address(0), account, amount * getPricePerShare() / 10**18);
+    }
+
+    // Override _burn to update base balances
+    function _burn(address account, uint256 amount) internal virtual override {
+        require(baseBalances[account] >= amount, "BurnExceedsBalance");
+        baseTotalSupply -= amount;
+        baseBalances[account] -= amount;
+        emit Transfer(account, address(0), amount * getPricePerShare() / 10**18);
+    }
+
+    // Recover excess ETH
+    function recover(uint256 amount, address receiver) external onlyOwner {
+        uint256 excessBalance = address(this).balance > totalDepositedAsset ? address(this).balance - totalDepositedAsset : 0;
+        require(amount <= excessBalance, "AmountExceedsExcess");
+        require(address(this).balance >= totalDepositedAsset + amount, "InsufficientBalance");
+
+        (bool sent, ) = receiver.call{value: amount}("");
+        require(sent, "TransferFailed");
+        emit Recover(receiver, amount);
+    }
+
+    // Deposit/withdraw for ERC20 pool token
+    function deposit(uint256 amount, address receiver) external payable nonReentrant {
+        require(msg.value == amount, "IncorrectValue");
+        require(amount >= minDeposit, "BelowMinDeposit");
+
+        _updateInterest(); // Accrue pending interest before deposit
+
+        // Calculate base tokens to mint based on current price per share
+        uint256 baseTokens = (amount * 10**18) / getPricePerShare();
+        totalDepositedAsset += amount;
+        _mint(receiver, baseTokens);
+
+        emit Deposit(msg.sender, receiver, amount, baseTokens);
+    }
+
+    function withdraw(uint256 amount, address receiver) external nonReentrant {
+        require(amount > 0, "ZeroAmount");
+        require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalDepositedAsset > 0, "NoDeposits");
 
-        // Calculate the user's share of the pool, including accumulated interest
-        uint256 userShare = (shares * 10**18) / totalSupply();
-        uint256 assets = (userShare * totalDepositedAsset) / 10**18;
+        _updateInterest(); // Accrue pending interest before withdraw
 
-        // Distribute accumulated borrowing interest proportionally
-        if (accumulatedBorrowingInterest > 0) {
-            uint256 interestShare = (accumulatedBorrowingInterest * userShare) / 10**18;
-            accumulatedBorrowingInterest -= interestShare;
-            totalDepositedAsset += interestShare;
-            assets += interestShare;
-        }
+        // Calculate base tokens to burn based on current price per share
+        uint256 baseTokens = (amount * 10**18) / getPricePerShare();
+        require(baseTokens <= baseBalances[msg.sender], "InsufficientBaseBalance");
 
-        require(address(this).balance >= assets, "InsufficientBalance");
-        totalDepositedAsset -= assets;
-        _burn(msg.sender, shares);
+        require(address(this).balance >= amount, "InsufficientBalance");
+        totalDepositedAsset -= amount;
+        _burn(msg.sender, baseTokens);
 
-        (bool sent, ) = receiver.call{value: assets}("");
+        (bool sent, ) = receiver.call{value: amount}("");
         require(sent, "TransferFailed");
-        emit Withdraw(msg.sender, receiver, assets, shares);
+        emit Withdraw(msg.sender, receiver, amount, baseTokens);
     }
 
     // BaseLending Logic
@@ -906,8 +980,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return borrowingRate > maxBorrowingRate ? maxBorrowingRate : borrowingRate;
     }
 
-    function getPendingLendingInterest() public view returns (uint256) {
-        return accumulatedBorrowingInterest;
+    function getTotalPendingInterest() public view returns (uint256) {
+        if (totalBorrowed == 0) return 0;
+        uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
+        uint256 rate = getCurrentBorrowingRate();
+        return (totalBorrowed * rate * timeElapsed) / (10**18 * SECONDS_PER_YEAR);
     }
 
     function getPendingBorrowingInterest(address user) public view returns (uint256) {
