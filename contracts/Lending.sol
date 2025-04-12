@@ -896,8 +896,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(amount <= excessBalance, "AmountExceedsExcess");
         require(address(this).balance >= totalDepositedAsset + amount, "InsufficientBalance");
 
-        (bool sent, ) = receiver.call{value: amount}("");
-        require(sent, "TransferFailed");
+        SafeTransferLib.safeTransferETH(receiver, amount);
         emit Recover(receiver, amount);
     }
 
@@ -931,8 +930,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         totalDepositedAsset -= amount;
         _burn(msg.sender, baseTokens);
 
-        (bool sent, ) = receiver.call{value: amount}("");
-        require(sent, "TransferFailed");
+        SafeTransferLib.safeTransferETH(receiver, amount);
         emit Withdraw(msg.sender, receiver, amount, baseTokens);
     }
 
@@ -1037,8 +1035,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 amount = accumulatedProtocolFees;
         accumulatedProtocolFees = 0;
 
-        (bool sent, ) = receiver.call{value: amount}("");
-        require(sent, "TransferFailed");
+        SafeTransferLib.safeTransferETH(receiver, amount);
         emit CollectProtocolFees(receiver, amount);
     }
 
@@ -1060,8 +1057,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(newBorrowed <= (collateralValue * ltv) / 10**18, "InsufficientCollateral");
         userBorrowed[msg.sender] = newBorrowed;
         totalBorrowed += amount;
-        (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "TransferFailed");
+        SafeTransferLib.safeTransferETH(msg.sender, amount);
         emit Borrow(msg.sender, amount);
     }
 
@@ -1076,8 +1072,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit Repay(msg.sender, repayment);
         // Refund any excess ETH sent beyond the user's debt
         if (msg.value > debt) {
-            (bool sent, ) = msg.sender.call{value: msg.value - repayment}("");
-            require(sent, "RefundFailed");
+            SafeTransferLib.safeTransferETH(msg.sender, msg.value - debt);
         }
     }
 
