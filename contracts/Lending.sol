@@ -1006,10 +1006,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function getTotalPendingInterest() public view returns (uint256) {
         if (totalDebtShares == 0) return 0;
-        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
-        uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
-        uint256 rate = getCurrentBorrowingRate();
-        return (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
+        uint256 totalDebtInEth = (totalDebtShares * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 totalPrincipalInEth = (totalDebtShares * (10**PRICE_PER_SHARE_DECIMALS)) / (10**PRICE_PER_SHARE_DECIMALS); // Initial price was 1
+        return totalDebtInEth > totalPrincipalInEth ? totalDebtInEth - totalPrincipalInEth : 0;
     }
 
     function getPendingBorrowingInterest(address user) public view returns (uint256) {
