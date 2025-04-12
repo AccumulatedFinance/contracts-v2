@@ -847,7 +847,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
         if (timeElapsed == 0 || totalDebtInEth == 0) return debtPricePerShare;
-        uint256 rate = getCurrentBorrowingRate();
+        // Use getCurrentBorrowingRateWithStoredPrice to avoid recursion
+        uint256 rate = getCurrentBorrowingRateWithStoredPrice();
         uint256 interest = (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
         uint256 interestFactor = (interest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtInEth;
         return debtPricePerShare + (debtPricePerShare * interestFactor) / (10**PRICE_PER_SHARE_DECIMALS);
@@ -964,12 +965,31 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function getUtilizationRate() public view returns (uint256) {
         if (totalAssets == 0) return 0;
-        uint256 totalDebtInEth = (totalDebtShares * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        // Use the stored debtPricePerShare to avoid recursion
+        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         return (totalDebtInEth * RATE_DENOMINATOR) / totalAssets;
     }
 
     function getCurrentBorrowingRate() public view returns (uint256) {
-        uint256 utilization = getUtilizationRate(); // In bps
+        uint256 utilization = getUtilizationRate();
+        if (utilization == vertexUtilization) {
+            return vertexBorrowingRate;
+        } else if (utilization < vertexUtilization) {
+            uint256 rateDiff = vertexBorrowingRate - minBorrowingRate;
+            return minBorrowingRate + (utilization * rateDiff) / vertexUtilization;
+        } else {
+            uint256 rateDiff = maxBorrowingRate - vertexBorrowingRate;
+            uint256 utilDiff = utilization - vertexUtilization;
+            uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
+            return vertexBorrowingRate + (utilDiff * rateDiff) / utilRange;
+        }
+    }
+
+    // Helper function to avoid recursion in getDebtPricePerShare
+    function getCurrentBorrowingRateWithStoredPrice() internal view returns (uint256) {
+        if (totalAssets == 0) return minBorrowingRate;
+        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 utilization = (totalDebtInEth * RATE_DENOMINATOR) / totalAssets;
         if (utilization == vertexUtilization) {
             return vertexBorrowingRate;
         } else if (utilization < vertexUtilization) {
@@ -1008,7 +1028,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (totalDebtShares == 0) return 0;
         uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
-        uint256 rate = getCurrentBorrowingRate();
+        uint256 rate = getCurrentBorrowingRateWithStoredPrice();
         return (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
     }
 
@@ -1076,12 +1096,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
         uint256 collateralValue = _getCollateralValue(msg.sender);
-        uint256 userDebtInEth = (userDebtShares[msg.sender] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 userDebtInEth = (userDebtShares[msg.sender] * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 newDebtInEth = userDebtInEth + amount;
         require(newDebtInEth <= (collateralValue * ltv) / (10**PRICE_PER_SHARE_DECIMALS), "InsufficientCollateral");
 
         // Convert ETH amount to debt shares
-        uint256 newDebtShares = (amount * 10**PRICE_PER_SHARE_DECIMALS) / getDebtPricePerShare();
+        uint256 newDebtShares = (amount * 10**PRICE_PER_SHARE_DECIMALS) / debtPricePerShare;
         userDebtShares[msg.sender] += newDebtShares;
         totalDebtShares += newDebtShares;
 
@@ -1097,12 +1117,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(userShares > 0, "NoDebt");
 
         // Calculate the user's total debt in ETH
-        uint256 totalDebtInEth = (userShares * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 totalDebtInEth = (userShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
 
         // Determine repayment amount
         uint256 repayment = msg.value > totalDebtInEth ? totalDebtInEth : msg.value;
         // Convert repayment amount to debt shares
-        uint256 sharesRepaid = (repayment * 10**PRICE_PER_SHARE_DECIMALS) / getDebtPricePerShare();
+        uint256 sharesRepaid = (repayment * 10**PRICE_PER_SHARE_DECIMALS) / debtPricePerShare;
         userDebtShares[msg.sender] -= sharesRepaid;
         totalDebtShares -= sharesRepaid;
 
@@ -1120,7 +1140,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(userCollateral[msg.sender] >= amount, "InsufficientCollateral");
         uint256 remainingCollateral = userCollateral[msg.sender] - amount;
         uint256 remainingValue = _getCollateralValueFromShares(remainingCollateral);
-        uint256 userDebtInEth = (userDebtShares[msg.sender] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 userDebtInEth = (userDebtShares[msg.sender] * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         require(remainingValue >= (userDebtInEth * 10**PRICE_PER_SHARE_DECIMALS) / ltv, "Undercollateralized");
         userCollateral[msg.sender] = remainingCollateral;
         collateral.safeTransfer(msg.sender, amount);
