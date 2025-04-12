@@ -774,8 +774,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     IERC4626 public collateral; // ERC4626 collateral token
     uint256 public totalBorrowed; // Total native asset borrowed across all users
-    uint256 public totalDepositedAsset; // Total native asset deposited by suppliers (now includes interest)
-    uint256 public maxDepositedAsset; // Maximum allowed deposited asset (default 0)
+    uint256 public totalAssets; // Total native asset deposited by suppliers (now includes interest)
+    uint256 public maxAssets; // Maximum allowed deposited asset (default 0)
     mapping(address => uint256) public userCollateral; // User's deposited collateral (in shares)
     mapping(address => uint256) public userBorrowed; // User's borrowed native asset amount
 
@@ -819,7 +819,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event Recover(address indexed receiver, uint256 amount);
     event UpdateProtocolFeeParams(uint256 flatFee);
     event CollectProtocolFees(address indexed receiver, uint256 amount);
-    event UpdateMaxDepositedAsset(uint256 newMax);
+    event UpdateMaxAssets(uint256 newMax);
 
     constructor(IERC4626 _collateralToken)
         ERC20(
@@ -835,7 +835,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Calculate price per share (liquidity index)
     function getPricePerShare() public view returns (uint256) {
         if (baseTotalSupply == 0) return 10**18; // 1:1 initially (1 token = 1 ETH)
-        uint256 totalEth = totalDepositedAsset + totalBorrowed + getTotalPendingInterest();
+        uint256 totalEth = totalAssets + totalBorrowed + getTotalPendingInterest();
         return (totalEth * 10**18) / baseTotalSupply;
     }
 
@@ -891,9 +891,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     // Recover excess ETH
     function recover(uint256 amount, address receiver) external onlyOwner {
-        uint256 excessBalance = address(this).balance > totalDepositedAsset ? address(this).balance - totalDepositedAsset : 0;
+        uint256 excessBalance = address(this).balance > totalAssets ? address(this).balance - totalAssets : 0;
         require(amount <= excessBalance, "AmountExceedsExcess");
-        require(address(this).balance >= totalDepositedAsset + amount, "InsufficientBalance");
+        require(address(this).balance >= totalAssets + amount, "InsufficientBalance");
 
         SafeTransferLib.safeTransferETH(receiver, amount);
         emit Recover(receiver, amount);
@@ -902,13 +902,13 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Deposit/withdraw for ERC20 pool token
     function deposit(address receiver) external payable nonReentrant {
         require(msg.value >= minDeposit, "BelowMinDeposit");
-        require(totalDepositedAsset + msg.value <= maxDepositedAsset, "ExceedsMaxDeposit");
+        require(totalAssets + msg.value <= maxAssets, "ExceedsMaxAssets");
 
         _updateInterest(); // Accrue pending interest before deposit
 
         // Calculate base tokens to mint based on current price per share
         uint256 baseTokens = (msg.value * 10**18) / getPricePerShare();
-        totalDepositedAsset += msg.value;
+        totalAssets += msg.value;
         _mint(receiver, baseTokens);
 
         emit Deposit(msg.sender, receiver, msg.value, baseTokens);
@@ -917,7 +917,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function withdraw(uint256 amount, address receiver) external nonReentrant {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
-        require(totalDepositedAsset > 0, "NoDeposits");
+        require(totalAssets > 0, "NoDeposits");
 
         _updateInterest(); // Accrue pending interest before withdraw
 
@@ -928,7 +928,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         // Check if the contract has enough ETH to cover the withdrawal
         require(address(this).balance >= amount, "InsufficientContractBalance");
 
-        totalDepositedAsset -= amount;
+        totalAssets -= amount;
         _burn(msg.sender, baseTokens);
 
         SafeTransferLib.safeTransferETH(receiver, amount);
@@ -949,8 +949,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function getUtilizationRate() public view returns (uint256) {
-        if (totalDepositedAsset == 0) return 0;
-        return (totalBorrowed * RATE_DENOMINATOR) / totalDepositedAsset;
+        if (totalAssets == 0) return 0;
+        return (totalBorrowed * RATE_DENOMINATOR) / totalAssets;
     }
 
     function getCurrentBorrowingRate() public view returns (uint256) {
@@ -1022,7 +1022,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
             // Update state
             totalBorrowed += borrowingInterest;
-            totalDepositedAsset += lenderInterest; // Add lender interest to totalDepositedAsset
+            totalAssets += lenderInterest; // Add lender interest to totalAssets
             accumulatedProtocolFees += fee;
             lastUpdateTimestamp = block.timestamp;
         }
@@ -1120,7 +1120,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 borrowedAsset,
         uint256 availableAsset
     ) {
-        return (totalDepositedAsset, totalBorrowed, address(this).balance);
+        return (totalAssets, totalBorrowed, address(this).balance);
     }
 
     // Admin functions
@@ -1158,10 +1158,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateMinDeposit(newMin);
     }
 
-    function updateMaxDepositedAsset(uint256 newMax) external onlyOwner {
-        require(newMax >= totalDepositedAsset, "NewMaxBelowCurrentDeposits");
-        maxDepositedAsset = newMax;
-        emit UpdateMaxDepositedAsset(newMax);
+    function updateMaxAssets(uint256 newMax) external onlyOwner {
+        require(newMax >= totalAssets, "NewMaxBelowCurrentDeposits");
+        maxAssets = newMax;
+        emit UpdateMaxAssets(newMax);
     }
 
     receive() external payable {}
