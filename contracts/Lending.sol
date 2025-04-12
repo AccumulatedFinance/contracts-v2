@@ -1050,6 +1050,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function borrow(uint256 amount) external nonReentrant {
         _updateInterest();
+        // Add pending interest to user's debt
+        uint256 pendingInterest = getPendingBorrowingInterest(msg.sender);
+        userBorrowed[msg.sender] += pendingInterest;
+
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
         uint256 collateralValue = _getCollateralValue(msg.sender);
@@ -1064,20 +1068,33 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function repay() external payable nonReentrant {
         _updateInterest();
         require(msg.value > 0, "ZeroAmount");
-        uint256 debt = userBorrowed[msg.sender];
-        require(debt > 0, "NoDebt");
-        uint256 repayment = msg.value > debt ? debt : msg.value;
+
+        // Calculate total debt including pending interest
+        uint256 pendingInterest = getPendingBorrowingInterest(msg.sender);
+        uint256 totalDebt = userBorrowed[msg.sender] + pendingInterest;
+        require(totalDebt > 0, "NoDebt");
+
+        // Update user's debt with the pending interest
+        userBorrowed[msg.sender] = totalDebt;
+
+        // Determine repayment amount
+        uint256 repayment = msg.value > totalDebt ? totalDebt : msg.value;
         userBorrowed[msg.sender] -= repayment;
         totalBorrowed -= repayment;
         emit Repay(msg.sender, repayment);
-        // Refund any excess ETH sent beyond the user's debt
-        if (msg.value > debt) {
-            SafeTransferLib.safeTransferETH(msg.sender, msg.value - debt);
+
+        // Refund any excess ETH sent beyond the total debt
+        if (msg.value > totalDebt) {
+            SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebt);
         }
     }
 
     function withdrawCollateral(uint256 amount) external nonReentrant {
         _updateInterest();
+        // Add pending interest to user's debt
+        uint256 pendingInterest = getPendingBorrowingInterest(msg.sender);
+        userBorrowed[msg.sender] += pendingInterest;
+
         require(amount > 0, "LessThanMin");
         require(userCollateral[msg.sender] >= amount, "InsufficientCollateral");
         uint256 remainingCollateral = userCollateral[msg.sender] - amount;
