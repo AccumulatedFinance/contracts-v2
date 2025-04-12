@@ -1101,10 +1101,17 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
         // Determine repayment amount
         uint256 repayment = msg.value > totalDebtInEth ? totalDebtInEth : msg.value;
-        // Convert repayment amount to debt shares
-        uint256 sharesRepaid = (repayment * 10**PRICE_PER_SHARE_DECIMALS) / debtPricePerShare;
-        userDebtShares[msg.sender] -= sharesRepaid;
-        totalDebtShares -= sharesRepaid;
+
+        // If repaying the full debt, set shares to 0 to avoid rounding errors
+        if (repayment == totalDebtInEth) {
+            totalDebtShares -= userShares;
+            userDebtShares[msg.sender] = 0;
+        } else {
+            // Convert repayment amount to debt shares
+            uint256 sharesRepaid = (repayment * 10**PRICE_PER_SHARE_DECIMALS) / debtPricePerShare;
+            userDebtShares[msg.sender] -= sharesRepaid;
+            totalDebtShares -= sharesRepaid;
+        }
 
         emit Repay(msg.sender, repayment);
 
