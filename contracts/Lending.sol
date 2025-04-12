@@ -774,7 +774,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     IERC4626 public collateral; // ERC4626 collateral token
     uint256 public totalBorrowed; // Total native asset borrowed across all users
-    uint256 public totalDepositedAsset; // Total native asset deposited by suppliers
+    uint256 public totalDepositedAsset; // Total native asset deposited by suppliers (now includes interest)
     uint256 public maxDepositedAsset; // Maximum allowed deposited asset (default 0)
     mapping(address => uint256) public userCollateral; // User's deposited collateral (in shares)
     mapping(address => uint256) public userBorrowed; // User's borrowed native asset amount
@@ -796,7 +796,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public vertexUtilization = 5000; // 50% in bps
 
     // Interest tracking
-    uint256 public accumulatedBorrowingInterest; // Accrued borrowing interest for lenders
     uint256 public accumulatedProtocolFees; // Accumulated protocol fees
 
     // Protocol fee params
@@ -836,7 +835,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Calculate price per share (liquidity index)
     function getPricePerShare() public view returns (uint256) {
         if (baseTotalSupply == 0) return 10**18; // 1:1 initially (1 token = 1 ETH)
-        uint256 totalEth = totalDepositedAsset + totalBorrowed + accumulatedBorrowingInterest + getTotalPendingInterest();
+        uint256 totalEth = totalDepositedAsset + totalBorrowed + getTotalPendingInterest();
         return (totalEth * 10**18) / baseTotalSupply;
     }
 
@@ -926,7 +925,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 baseTokens = (amount * 10**18) / getPricePerShare();
         require(baseTokens <= baseBalances[msg.sender], "InsufficientBaseBalance");
 
-        require(address(this).balance >= amount, "InsufficientBalance");
+        // Check if the contract has enough ETH to cover the withdrawal
+        require(address(this).balance >= amount, "InsufficientContractBalance");
+
         totalDepositedAsset -= amount;
         _burn(msg.sender, baseTokens);
 
@@ -1021,7 +1022,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
             // Update state
             totalBorrowed += borrowingInterest;
-            accumulatedBorrowingInterest += lenderInterest;
+            totalDepositedAsset += lenderInterest; // Add lender interest to totalDepositedAsset
             accumulatedProtocolFees += fee;
             lastUpdateTimestamp = block.timestamp;
         }
@@ -1050,10 +1051,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function borrow(uint256 amount) external nonReentrant {
         _updateInterest();
-        // Add pending interest to user's debt
-        uint256 pendingInterest = getPendingBorrowingInterest(msg.sender);
-        userBorrowed[msg.sender] += pendingInterest;
-
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
         uint256 collateralValue = _getCollateralValue(msg.sender);
@@ -1068,33 +1065,20 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function repay() external payable nonReentrant {
         _updateInterest();
         require(msg.value > 0, "ZeroAmount");
-
-        // Calculate total debt including pending interest
-        uint256 pendingInterest = getPendingBorrowingInterest(msg.sender);
-        uint256 totalDebt = userBorrowed[msg.sender] + pendingInterest;
-        require(totalDebt > 0, "NoDebt");
-
-        // Update user's debt with the pending interest
-        userBorrowed[msg.sender] = totalDebt;
-
-        // Determine repayment amount
-        uint256 repayment = msg.value > totalDebt ? totalDebt : msg.value;
+        uint256 debt = userBorrowed[msg.sender];
+        require(debt > 0, "NoDebt");
+        uint256 repayment = msg.value > debt ? debt : msg.value;
         userBorrowed[msg.sender] -= repayment;
         totalBorrowed -= repayment;
         emit Repay(msg.sender, repayment);
-
-        // Refund any excess ETH sent beyond the total debt
-        if (msg.value > totalDebt) {
-            SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebt);
+        // Refund any excess ETH sent beyond the user's debt
+        if (msg.value > debt) {
+            SafeTransferLib.safeTransferETH(msg.sender, msg.value - debt);
         }
     }
 
     function withdrawCollateral(uint256 amount) external nonReentrant {
         _updateInterest();
-        // Add pending interest to user's debt
-        uint256 pendingInterest = getPendingBorrowingInterest(msg.sender);
-        userBorrowed[msg.sender] += pendingInterest;
-
         require(amount > 0, "LessThanMin");
         require(userCollateral[msg.sender] >= amount, "InsufficientCollateral");
         uint256 remainingCollateral = userCollateral[msg.sender] - amount;
