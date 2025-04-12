@@ -1159,7 +1159,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function updateMaxAssets(uint256 newMax) external onlyOwner {
-        require(newMax >= totalAssets, "NewMaxBelowCurrentDeposits");
+        require(newMax >= totalAssets, "NewMaxBelowCurrentAssets");
         maxAssets = newMax;
         emit UpdateMaxAssets(newMax);
     }
