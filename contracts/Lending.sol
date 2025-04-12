@@ -835,7 +835,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Calculate price per share (liquidity index)
     function getPricePerShare() public view returns (uint256) {
         if (baseTotalSupply == 0) return 10**18; // 1:1 initially (1 token = 1 ETH)
-        uint256 totalEth = totalAssets + totalBorrowed + getTotalPendingInterest();
+        uint256 totalEth = totalAssets + getTotalPendingInterest();
         return (totalEth * 10**18) / baseTotalSupply;
     }
 
