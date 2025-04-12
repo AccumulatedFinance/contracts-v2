@@ -1074,7 +1074,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         userBorrowed[msg.sender] -= repayment;
         totalBorrowed -= repayment;
         emit Repay(msg.sender, repayment);
-        if (msg.value > repayment) {
+        // Refund any excess ETH sent beyond the user's debt
+        if (msg.value > debt) {
             (bool sent, ) = msg.sender.call{value: msg.value - repayment}("");
             require(sent, "RefundFailed");
         }
