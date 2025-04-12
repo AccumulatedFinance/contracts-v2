@@ -775,6 +775,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     IERC4626 public collateral; // ERC4626 collateral token
     uint256 public totalBorrowed; // Total native asset borrowed across all users
     uint256 public totalDepositedAsset; // Total native asset deposited by suppliers
+    uint256 public maxDepositedAsset; // Maximum allowed deposited asset (default 0)
     mapping(address => uint256) public userCollateral; // User's deposited collateral (in shares)
     mapping(address => uint256) public userBorrowed; // User's borrowed native asset amount
 
@@ -786,20 +787,21 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     // LTV
     uint256 public constant MAX_LTV = 0.9 * 10**18; // 90% absolute max
-    uint256 public ltv = 0.8 * 10**18; // 80% default, adjustable up to MAX_LTV
+    uint256 public ltv = 0; // Default to 0 (borrowing disabled)
 
-    // Lending rate params (piecewise linear)
-    uint256 public minRate = 0.02 * 10**18; // 2% at 0% utilization
-    uint256 public vertexRate = 0.05 * 10**18; // 5% at vertexUtilization
-    uint256 public maxRate = 0.1 * 10**18; // 10% at 100% utilization
+    // Borrowing rate params (piecewise linear)
+    uint256 public minBorrowingRate = 0.02 * 10**18; // 2% at 0% utilization
+    uint256 public vertexBorrowingRate = 0.05 * 10**18; // 5% at vertexUtilization
+    uint256 public maxBorrowingRate = 2.5 * 10**18; // 250% at 100% utilization
     uint256 public vertexUtilization = 5000; // 50% in bps
 
-    // Borrowing rate params
-    uint256 public borrowingRateMultiplier = 0.5 * 10**18; // Non-linear multiplier
-    uint256 public maxBorrowingRate = 0.15 * 10**18; // 15% cap
-
     // Interest tracking
-    uint256 public accumulatedBorrowingInterest; // Accrued borrowing interest
+    uint256 public accumulatedBorrowingInterest; // Accrued borrowing interest for lenders
+    uint256 public protocolFees; // Accumulated protocol fees
+
+    // Protocol fee params
+    uint256 public constant MAX_PROTOCOL_FEE = 4000; // 40% max allowable flat fee (in bps)
+    uint256 public flatProtocolFee = 3000; // 30% flat fee before vertex (in bps)
 
     // Base balances for rebasing (unscaled values)
     mapping(address => uint256) private baseBalances; // Unscaled balances
@@ -814,9 +816,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event Borrow(address indexed user, uint256 amount);
     event Repay(address indexed user, uint256 amount);
     event UpdateLTV(uint256 newLTV);
-    event UpdateLendingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
-    event UpdateBorrowingRateParams(uint256 multiplier);
+    event UpdateBorrowingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
     event Recover(address indexed receiver, uint256 amount);
+    event UpdateProtocolFeeParams(uint256 flatFee);
+    event CollectProtocolFees(address indexed receiver, uint256 amount);
+    event UpdateMaxDepositedAsset(uint256 newMax);
 
     constructor(IERC4626 _collateralToken)
         ERC20(
@@ -901,6 +905,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function deposit(uint256 amount, address receiver) external payable nonReentrant {
         require(msg.value == amount, "IncorrectValue");
         require(amount >= minDeposit, "BelowMinDeposit");
+        require(totalDepositedAsset + amount <= maxDepositedAsset, "ExceedsMaxDeposit");
 
         _updateInterest(); // Accrue pending interest before deposit
 
@@ -950,29 +955,40 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return (totalBorrowed * RATE_DENOMINATOR) / totalDepositedAsset;
     }
 
-    function getCurrentLendingRate() public view returns (uint256) {
+    function getCurrentBorrowingRate() public view returns (uint256) {
         uint256 utilization = getUtilizationRate(); // In bps
         if (utilization == vertexUtilization) {
-            return vertexRate;
+            return vertexBorrowingRate;
         } else if (utilization < vertexUtilization) {
-            uint256 rateDiff = vertexRate - minRate;
-            return minRate + (utilization * rateDiff) / vertexUtilization;
+            uint256 rateDiff = vertexBorrowingRate - minBorrowingRate;
+            return minBorrowingRate + (utilization * rateDiff) / vertexUtilization;
         } else {
-            uint256 rateDiff = maxRate - vertexRate;
+            uint256 rateDiff = maxBorrowingRate - vertexBorrowingRate;
             uint256 utilDiff = utilization - vertexUtilization;
             uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
-            return vertexRate + (utilDiff * rateDiff) / utilRange;
+            return vertexBorrowingRate + (utilDiff * rateDiff) / utilRange;
         }
     }
 
-    function getCurrentBorrowingRate() public view returns (uint256) {
-        uint256 lendingRate = getCurrentLendingRate();
-        uint256 utilization = getUtilizationRate(); // In bps
-        uint256 utilScaled = (utilization * 10**18) / RATE_DENOMINATOR; // Convert to 0-10^18 scale
-        uint256 nonLinearTerm = (utilScaled * utilScaled) / 10**18; // (utilization/10000)^2
-        uint256 adjustment = (lendingRate * nonLinearTerm * borrowingRateMultiplier) / (10**18 * 10**18);
-        uint256 borrowingRate = lendingRate + adjustment;
-        return borrowingRate > maxBorrowingRate ? maxBorrowingRate : borrowingRate;
+    function getProtocolFeeRate() public view returns (uint256) {
+        uint256 utilization = getUtilizationRate();
+        if (utilization <= vertexUtilization) {
+            return flatProtocolFee;
+        } else {
+            uint256 utilDiff = utilization - vertexUtilization;
+            uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
+            uint256 x = (utilDiff * 10**18) / utilRange; // Normalized utilization (0 to 1 in 18 decimals)
+            uint256 xSquared = (x * x) / 10**18; // x^2
+            return flatProtocolFee * (10**18 + xSquared) / 10**18; // flatProtocolFee * (1 + x^2)
+        }
+    }
+
+    function getCurrentLendingRate() public view returns (uint256) {
+        uint256 borrowingRate = getCurrentBorrowingRate();
+        uint256 protocolFeeRateInBps = getProtocolFeeRate();
+        uint256 protocolFee = (borrowingRate * protocolFeeRateInBps) / RATE_DENOMINATOR;
+        uint256 lendingRate = borrowingRate > protocolFee ? borrowingRate - protocolFee : 0;
+        return lendingRate;
     }
 
     function getTotalPendingInterest() public view returns (uint256) {
@@ -1000,10 +1016,31 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (timeElapsed > 0 && totalBorrowed > 0) {
             uint256 borrowingRate = getCurrentBorrowingRate();
             uint256 borrowingInterest = (totalBorrowed * borrowingRate * timeElapsed) / (10**18 * SECONDS_PER_YEAR);
+
+            // Calculate protocol fee
+            uint256 protocolFeeRate = getProtocolFeeRate();
+            uint256 protocolFee = (borrowingInterest * protocolFeeRate) / RATE_DENOMINATOR;
+            uint256 lenderInterest = borrowingInterest - protocolFee;
+
+            // Update state
             totalBorrowed += borrowingInterest;
-            accumulatedBorrowingInterest += borrowingInterest;
+            accumulatedBorrowingInterest += lenderInterest;
+            protocolFees += protocolFee;
             lastUpdateTimestamp = block.timestamp;
         }
+    }
+
+    // Collect protocol fees
+    function collectProtocolFees(address receiver) external onlyOwner {
+        require(protocolFees > 0, "NoFeesToCollect");
+        require(address(this).balance >= protocolFees, "InsufficientBalance");
+
+        uint256 amount = protocolFees;
+        protocolFees = 0;
+
+        (bool sent, ) = receiver.call{value: amount}("");
+        require(sent, "TransferFailed");
+        emit CollectProtocolFees(receiver, amount);
     }
 
     function depositCollateral(uint256 amount) external nonReentrant {
@@ -1101,7 +1138,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateLTV(newLTV);
     }
 
-    function updateLendingRateParams(
+    function updateBorrowingRateParams(
         uint256 newMinRate,
         uint256 newVertexRate,
         uint256 newMaxRate,
@@ -1109,16 +1146,17 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     ) external onlyOwner {
         require(newMinRate <= newVertexRate && newVertexRate <= newMaxRate, "InvalidRateOrder");
         require(newVertexUtilization > 0 && newVertexUtilization < RATE_DENOMINATOR, "InvalidVertexUtilization");
-        minRate = newMinRate;
-        vertexRate = newVertexRate;
-        maxRate = newMaxRate;
+        minBorrowingRate = newMinRate;
+        vertexBorrowingRate = newVertexRate;
+        maxBorrowingRate = newMaxRate;
         vertexUtilization = newVertexUtilization;
-        emit UpdateLendingRateParams(newMinRate, newVertexRate, newMaxRate, newVertexUtilization);
+        emit UpdateBorrowingRateParams(newMinRate, newVertexRate, newMaxRate, newVertexUtilization);
     }
 
-    function updateBorrowingRateParams(uint256 newMultiplier) external onlyOwner {
-        borrowingRateMultiplier = newMultiplier;
-        emit UpdateBorrowingRateParams(newMultiplier);
+    function updateProtocolFeeParams(uint256 newFlatFee) external onlyOwner {
+        require(newFlatFee <= MAX_PROTOCOL_FEE, "FeeExceedsMax");
+        flatProtocolFee = newFlatFee;
+        emit UpdateProtocolFeeParams(newFlatFee);
     }
 
     function updateMinDeposit(uint256 newMin) external onlyOwner {
@@ -1126,6 +1164,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(newMin < type(uint128).max, "MinTooLarge");
         minDeposit = newMin;
         emit UpdateMinDeposit(newMin);
+    }
+
+    function updateMaxDepositedAsset(uint256 newMax) external onlyOwner {
+        require(newMax >= totalDepositedAsset, "NewMaxBelowCurrentDeposits");
+        maxDepositedAsset = newMax;
+        emit UpdateMaxDepositedAsset(newMax);
     }
 
     receive() external payable {}
