@@ -773,12 +773,13 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     string public LENDING_TYPE = "base";
 
     IERC4626 public collateral; // ERC4626 collateral token
-    uint256 public totalBorrowed; // Total native asset borrowed across all users
+    uint256 public totalDebtShares; // Total debt shares across all users
     uint256 public totalAssets; // Total native asset deposited by suppliers (now includes interest)
     uint256 public maxAssets; // Maximum allowed deposited asset (default 0)
     mapping(address => uint256) public userCollateral; // User's deposited collateral (in shares)
-    mapping(address => uint256) public userBorrowed; // User's borrowed native asset amount
+    mapping(address => uint256) public userDebtShares; // User's debt shares
 
+    uint256 public debtPricePerShare; // Price per debt share, increases over time
     uint256 public minDeposit = 1; // Minimum native asset deposit
     uint256 public constant PRICE_PER_SHARE_DECIMALS = 18; // pricePerShare is always 18 decimals
     uint256 public constant SECONDS_PER_YEAR = 31_536_000; // 365 * 24 * 60 * 60
@@ -790,9 +791,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public ltv = 0; // Default to 0 (borrowing disabled)
 
     // Borrowing rate params (piecewise linear)
-    uint256 public minBorrowingRate = 0.02 * 10**18; // 2% at 0% utilization
-    uint256 public vertexBorrowingRate = 0.05 * 10**18; // 5% at vertexUtilization
-    uint256 public maxBorrowingRate = 2.5 * 10**18; // 250% at 100% utilization
+    uint256 public minBorrowingRate = 0.00002 * 10**18; // 0.002% at 0% utilization
+    uint256 public vertexBorrowingRate = 0.00005 * 10**18; // 0.005% at vertexUtilization
+    uint256 public maxBorrowingRate = 0.0001 * 10**18; // 0.01% at 100% utilization
     uint256 public vertexUtilization = 5000; // 50% in bps
 
     // Interest tracking
@@ -830,28 +831,41 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     {
         collateral = _collateralToken;
         lastUpdateTimestamp = block.timestamp;
+        debtPricePerShare = 10**PRICE_PER_SHARE_DECIMALS; // Initialize to 1:1
     }
 
-    // Calculate price per share (liquidity index)
+    // Calculate price per share (liquidity index) for deposits
     function getPricePerShare() public view returns (uint256) {
-        if (baseTotalSupply == 0) return 10**18; // 1:1 initially (1 token = 1 ETH)
+        if (baseTotalSupply == 0) return 10**PRICE_PER_SHARE_DECIMALS; // 1:1 initially
         uint256 totalEth = totalAssets + getTotalPendingInterest();
-        return (totalEth * 10**18) / baseTotalSupply;
+        return (totalEth * 10**PRICE_PER_SHARE_DECIMALS) / baseTotalSupply;
+    }
+
+    // Calculate price per debt share
+    function getDebtPricePerShare() public view returns (uint256) {
+        if (totalDebtShares == 0) return 10**PRICE_PER_SHARE_DECIMALS; // 1:1 initially
+        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
+        if (timeElapsed == 0 || totalDebtInEth == 0) return debtPricePerShare;
+        uint256 rate = getCurrentBorrowingRate();
+        uint256 interest = (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
+        uint256 interestFactor = (interest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtInEth;
+        return debtPricePerShare + (debtPricePerShare * interestFactor) / (10**PRICE_PER_SHARE_DECIMALS);
     }
 
     // Override balanceOf to return scaled balance
     function balanceOf(address account) public view virtual override returns (uint256) {
-        return (baseBalances[account] * getPricePerShare()) / 10**18;
+        return (baseBalances[account] * getPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
     }
 
     // Override totalSupply to return scaled total supply
     function totalSupply() public view virtual override returns (uint256) {
-        return (baseTotalSupply * getPricePerShare()) / 10**18;
+        return (baseTotalSupply * getPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
     }
 
     // Override transfer to adjust for price per share
     function transfer(address recipient, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * 10**18) / getPricePerShare();
+        uint256 baseAmount = (amount * 10**PRICE_PER_SHARE_DECIMALS) / getPricePerShare();
         require(baseAmount <= baseBalances[msg.sender], "InsufficientBalance");
         baseBalances[msg.sender] -= baseAmount;
         baseBalances[recipient] += baseAmount;
@@ -861,7 +875,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     // Override transferFrom to adjust for price per share
     function transferFrom(address sender, address recipient, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * 10**18) / getPricePerShare();
+        uint256 baseAmount = (amount * 10**PRICE_PER_SHARE_DECIMALS) / getPricePerShare();
         require(baseAmount <= baseBalances[sender], "InsufficientBalance");
 
         uint256 currentAllowance = allowance(sender, msg.sender);
@@ -878,7 +892,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function _mint(address account, uint256 amount) internal virtual override {
         baseTotalSupply += amount;
         baseBalances[account] += amount;
-        emit Transfer(address(0), account, amount * getPricePerShare() / 10**18);
+        emit Transfer(address(0), account, (amount * getPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS));
     }
 
     // Override _burn to update base balances
@@ -886,7 +900,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(baseBalances[account] >= amount, "BurnExceedsBalance");
         baseTotalSupply -= amount;
         baseBalances[account] -= amount;
-        emit Transfer(account, address(0), amount * getPricePerShare() / 10**18);
+        emit Transfer(account, address(0), (amount * getPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS));
     }
 
     // Recover excess ETH
@@ -907,7 +921,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _updateInterest(); // Accrue pending interest before deposit
 
         // Calculate base tokens to mint based on current price per share
-        uint256 baseTokens = (msg.value * 10**18) / getPricePerShare();
+        uint256 baseTokens = (msg.value * 10**PRICE_PER_SHARE_DECIMALS) / getPricePerShare();
         totalAssets += msg.value;
         _mint(receiver, baseTokens);
 
@@ -922,7 +936,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _updateInterest(); // Accrue pending interest before withdraw
 
         // Calculate base tokens to burn based on current price per share
-        uint256 baseTokens = (amount * 10**18) / getPricePerShare();
+        uint256 baseTokens = (amount * 10**PRICE_PER_SHARE_DECIMALS) / getPricePerShare();
         require(baseTokens <= baseBalances[msg.sender], "InsufficientBaseBalance");
 
         // Check if the contract has enough ETH to cover the withdrawal
@@ -945,12 +959,13 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function _getCollateralValueFromShares(uint256 shares) internal view returns (uint256) {
-        return (shares * collateral.pricePerShare()) / 10**PRICE_PER_SHARE_DECIMALS;
+        return (shares * collateral.pricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
     }
 
     function getUtilizationRate() public view returns (uint256) {
         if (totalAssets == 0) return 0;
-        return (totalBorrowed * RATE_DENOMINATOR) / totalAssets;
+        uint256 totalDebtInEth = (totalDebtShares * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        return (totalDebtInEth * RATE_DENOMINATOR) / totalAssets;
     }
 
     function getCurrentBorrowingRate() public view returns (uint256) {
@@ -975,9 +990,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         } else {
             uint256 utilDiff = utilization - vertexUtilization;
             uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
-            uint256 x = (utilDiff * 10**18) / utilRange; // Normalized utilization (0 to 1 in 18 decimals)
-            uint256 xSquared = (x * x) / 10**18; // x^2
-            return protocolFee * (10**18 + xSquared) / 10**18; // protocolFee * (1 + x^2)
+            uint256 x = (utilDiff * 10**PRICE_PER_SHARE_DECIMALS) / utilRange; // Normalized utilization
+            uint256 xSquared = (x * x) / (10**PRICE_PER_SHARE_DECIMALS); // x^2
+            return protocolFee * (10**PRICE_PER_SHARE_DECIMALS + xSquared) / (10**PRICE_PER_SHARE_DECIMALS);
         }
     }
 
@@ -990,30 +1005,38 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function getTotalPendingInterest() public view returns (uint256) {
-        if (totalBorrowed == 0) return 0;
+        if (totalDebtShares == 0) return 0;
+        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
         uint256 rate = getCurrentBorrowingRate();
-        return (totalBorrowed * rate * timeElapsed) / (10**18 * SECONDS_PER_YEAR);
+        return (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
     }
 
     function getPendingBorrowingInterest(address user) public view returns (uint256) {
-        if (userBorrowed[user] == 0) return 0;
-        uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
-        uint256 rate = getCurrentBorrowingRate();
-        return (userBorrowed[user] * rate * timeElapsed) / (10**18 * SECONDS_PER_YEAR);
+        if (userDebtShares[user] == 0) return 0;
+        uint256 userDebtInEth = (userDebtShares[user] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 userPrincipalInEth = (userDebtShares[user] * (10**PRICE_PER_SHARE_DECIMALS)) / (10**PRICE_PER_SHARE_DECIMALS); // Initial price was 1
+        return userDebtInEth > userPrincipalInEth ? userDebtInEth - userPrincipalInEth : 0;
     }
 
     function getMaxBorrow(address user) public view returns (uint256) {
         uint256 collateralValue = _getCollateralValue(user);
-        uint256 maxBorrowable = (collateralValue * ltv) / 10**18;
-        return maxBorrowable > userBorrowed[user] ? maxBorrowable - userBorrowed[user] : 0;
+        uint256 userDebtInEth = (userDebtShares[user] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 maxBorrowable = (collateralValue * ltv) / (10**PRICE_PER_SHARE_DECIMALS);
+        return maxBorrowable > userDebtInEth ? maxBorrowable - userDebtInEth : 0;
     }
 
     function _updateInterest() internal {
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
-        if (timeElapsed > 0 && totalBorrowed > 0) {
+        if (timeElapsed > 0 && totalDebtShares > 0) {
             uint256 borrowingRate = getCurrentBorrowingRate();
-            uint256 borrowingInterest = (totalBorrowed * borrowingRate * timeElapsed) / (10**18 * SECONDS_PER_YEAR);
+            // Compute interest on the total debt in ETH
+            uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
+            uint256 borrowingInterest = (totalDebtInEth * borrowingRate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
+
+            // Update debtPricePerShare
+            uint256 interestFactor = (borrowingInterest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtInEth;
+            debtPricePerShare = debtPricePerShare + (debtPricePerShare * interestFactor) / (10**PRICE_PER_SHARE_DECIMALS);
 
             // Calculate protocol fee
             uint256 protocolFeeRate = getProtocolFeeRate();
@@ -1021,8 +1044,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             uint256 lenderInterest = borrowingInterest - fee;
 
             // Update state
-            totalBorrowed += borrowingInterest;
-            totalAssets += lenderInterest; // Add lender interest to totalAssets
+            totalAssets += lenderInterest;
             accumulatedProtocolFees += fee;
             lastUpdateTimestamp = block.timestamp;
         }
@@ -1054,10 +1076,15 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
         uint256 collateralValue = _getCollateralValue(msg.sender);
-        uint256 newBorrowed = userBorrowed[msg.sender] + amount;
-        require(newBorrowed <= (collateralValue * ltv) / 10**18, "InsufficientCollateral");
-        userBorrowed[msg.sender] = newBorrowed;
-        totalBorrowed += amount;
+        uint256 userDebtInEth = (userDebtShares[msg.sender] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 newDebtInEth = userDebtInEth + amount;
+        require(newDebtInEth <= (collateralValue * ltv) / (10**PRICE_PER_SHARE_DECIMALS), "InsufficientCollateral");
+
+        // Convert ETH amount to debt shares
+        uint256 newDebtShares = (amount * 10**PRICE_PER_SHARE_DECIMALS) / getDebtPricePerShare();
+        userDebtShares[msg.sender] += newDebtShares;
+        totalDebtShares += newDebtShares;
+
         SafeTransferLib.safeTransferETH(msg.sender, amount);
         emit Borrow(msg.sender, amount);
     }
@@ -1065,15 +1092,25 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function repay() external payable nonReentrant {
         _updateInterest();
         require(msg.value > 0, "ZeroAmount");
-        uint256 debt = userBorrowed[msg.sender];
-        require(debt > 0, "NoDebt");
-        uint256 repayment = msg.value > debt ? debt : msg.value;
-        userBorrowed[msg.sender] -= repayment;
-        totalBorrowed -= repayment;
+
+        uint256 userShares = userDebtShares[msg.sender];
+        require(userShares > 0, "NoDebt");
+
+        // Calculate the user's total debt in ETH
+        uint256 totalDebtInEth = (userShares * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+
+        // Determine repayment amount
+        uint256 repayment = msg.value > totalDebtInEth ? totalDebtInEth : msg.value;
+        // Convert repayment amount to debt shares
+        uint256 sharesRepaid = (repayment * 10**PRICE_PER_SHARE_DECIMALS) / getDebtPricePerShare();
+        userDebtShares[msg.sender] -= sharesRepaid;
+        totalDebtShares -= sharesRepaid;
+
         emit Repay(msg.sender, repayment);
-        // Refund any excess ETH sent beyond the user's debt
-        if (msg.value > debt) {
-            SafeTransferLib.safeTransferETH(msg.sender, msg.value - debt);
+
+        // Refund any excess ETH sent beyond the total debt
+        if (msg.value > totalDebtInEth) {
+            SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebtInEth);
         }
     }
 
@@ -1083,7 +1120,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(userCollateral[msg.sender] >= amount, "InsufficientCollateral");
         uint256 remainingCollateral = userCollateral[msg.sender] - amount;
         uint256 remainingValue = _getCollateralValueFromShares(remainingCollateral);
-        require(remainingValue >= (userBorrowed[msg.sender] * 10**18) / ltv, "Undercollateralized");
+        uint256 userDebtInEth = (userDebtShares[msg.sender] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        require(remainingValue >= (userDebtInEth * 10**PRICE_PER_SHARE_DECIMALS) / ltv, "Undercollateralized");
         userCollateral[msg.sender] = remainingCollateral;
         collateral.safeTransfer(msg.sender, amount);
         emit WithdrawCollateral(msg.sender, amount);
@@ -1099,18 +1137,18 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function getHealthFactor(address user) external view returns (uint256) {
-        uint256 borrowed = userBorrowed[user] + getPendingBorrowingInterest(user);
+        uint256 borrowed = (userDebtShares[user] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
         if (borrowed == 0) return type(uint256).max;
         uint256 collateralValue = _getCollateralValue(user);
-        return (collateralValue * 10**18) / borrowed;
+        return (collateralValue * 10**PRICE_PER_SHARE_DECIMALS) / borrowed;
     }
 
     function previewMaxCollateralWithdrawal(address user) external view returns (uint256) {
-        uint256 borrowed = userBorrowed[user] + getPendingBorrowingInterest(user);
+        uint256 borrowed = (userDebtShares[user] * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
         if (borrowed == 0) return userCollateral[user];
         uint256 collateralValue = _getCollateralValue(user);
-        if (collateralValue <= (borrowed * 10**18) / ltv) return 0;
-        uint256 excessValue = collateralValue - (borrowed * 10**18) / ltv;
+        if (collateralValue <= (borrowed * 10**PRICE_PER_SHARE_DECIMALS) / ltv) return 0;
+        uint256 excessValue = collateralValue - (borrowed * 10**PRICE_PER_SHARE_DECIMALS) / ltv;
         uint256 excessShares = (excessValue * 10**PRICE_PER_SHARE_DECIMALS) / collateral.pricePerShare();
         return excessShares > userCollateral[user] ? userCollateral[user] : excessShares;
     }
@@ -1120,7 +1158,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 borrowedAsset,
         uint256 availableAsset
     ) {
-        return (totalAssets, totalBorrowed, address(this).balance);
+        uint256 totalDebtInEth = (totalDebtShares * getDebtPricePerShare()) / (10**PRICE_PER_SHARE_DECIMALS);
+        return (totalAssets, totalDebtInEth, address(this).balance);
     }
 
     // Admin functions
