@@ -797,11 +797,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     // Interest tracking
     uint256 public accumulatedBorrowingInterest; // Accrued borrowing interest for lenders
-    uint256 public protocolFees; // Accumulated protocol fees
+    uint256 public accumulatedProtocolFees; // Accumulated protocol fees
 
     // Protocol fee params
     uint256 public constant MAX_PROTOCOL_FEE = 4000; // 40% max allowable flat fee (in bps)
-    uint256 public flatProtocolFee = 3000; // 30% flat fee before vertex (in bps)
+    uint256 public protocolFee = 3000; // 30% flat fee before vertex (in bps)
 
     // Base balances for rebasing (unscaled values)
     mapping(address => uint256) private baseBalances; // Unscaled balances
@@ -902,19 +902,18 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     // Deposit/withdraw for ERC20 pool token
-    function deposit(uint256 amount, address receiver) external payable nonReentrant {
-        require(msg.value == amount, "IncorrectValue");
-        require(amount >= minDeposit, "BelowMinDeposit");
-        require(totalDepositedAsset + amount <= maxDepositedAsset, "ExceedsMaxDeposit");
+    function deposit(address receiver) external payable nonReentrant {
+        require(msg.value >= minDeposit, "BelowMinDeposit");
+        require(totalDepositedAsset + msg.value <= maxDepositedAsset, "ExceedsMaxDeposit");
 
         _updateInterest(); // Accrue pending interest before deposit
 
         // Calculate base tokens to mint based on current price per share
-        uint256 baseTokens = (amount * 10**18) / getPricePerShare();
-        totalDepositedAsset += amount;
+        uint256 baseTokens = (msg.value * 10**18) / getPricePerShare();
+        totalDepositedAsset += msg.value;
         _mint(receiver, baseTokens);
 
-        emit Deposit(msg.sender, receiver, amount, baseTokens);
+        emit Deposit(msg.sender, receiver, msg.value, baseTokens);
     }
 
     function withdraw(uint256 amount, address receiver) external nonReentrant {
@@ -973,21 +972,21 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function getProtocolFeeRate() public view returns (uint256) {
         uint256 utilization = getUtilizationRate();
         if (utilization <= vertexUtilization) {
-            return flatProtocolFee;
+            return protocolFee;
         } else {
             uint256 utilDiff = utilization - vertexUtilization;
             uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
             uint256 x = (utilDiff * 10**18) / utilRange; // Normalized utilization (0 to 1 in 18 decimals)
             uint256 xSquared = (x * x) / 10**18; // x^2
-            return flatProtocolFee * (10**18 + xSquared) / 10**18; // flatProtocolFee * (1 + x^2)
+            return protocolFee * (10**18 + xSquared) / 10**18; // protocolFee * (1 + x^2)
         }
     }
 
     function getCurrentLendingRate() public view returns (uint256) {
         uint256 borrowingRate = getCurrentBorrowingRate();
         uint256 protocolFeeRateInBps = getProtocolFeeRate();
-        uint256 protocolFee = (borrowingRate * protocolFeeRateInBps) / RATE_DENOMINATOR;
-        uint256 lendingRate = borrowingRate > protocolFee ? borrowingRate - protocolFee : 0;
+        uint256 fee = (borrowingRate * protocolFeeRateInBps) / RATE_DENOMINATOR;
+        uint256 lendingRate = borrowingRate > fee ? borrowingRate - fee : 0;
         return lendingRate;
     }
 
@@ -1005,7 +1004,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return (userBorrowed[user] * rate * timeElapsed) / (10**18 * SECONDS_PER_YEAR);
     }
 
-    function getMaxBorrowableWithLTV(address user) public view returns (uint256) {
+    function getMaxBorrow(address user) public view returns (uint256) {
         uint256 collateralValue = _getCollateralValue(user);
         uint256 maxBorrowable = (collateralValue * ltv) / 10**18;
         return maxBorrowable > userBorrowed[user] ? maxBorrowable - userBorrowed[user] : 0;
@@ -1019,24 +1018,24 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
             // Calculate protocol fee
             uint256 protocolFeeRate = getProtocolFeeRate();
-            uint256 protocolFee = (borrowingInterest * protocolFeeRate) / RATE_DENOMINATOR;
-            uint256 lenderInterest = borrowingInterest - protocolFee;
+            uint256 fee = (borrowingInterest * protocolFeeRate) / RATE_DENOMINATOR;
+            uint256 lenderInterest = borrowingInterest - fee;
 
             // Update state
             totalBorrowed += borrowingInterest;
             accumulatedBorrowingInterest += lenderInterest;
-            protocolFees += protocolFee;
+            accumulatedProtocolFees += fee;
             lastUpdateTimestamp = block.timestamp;
         }
     }
 
     // Collect protocol fees
     function collectProtocolFees(address receiver) external onlyOwner {
-        require(protocolFees > 0, "NoFeesToCollect");
-        require(address(this).balance >= protocolFees, "InsufficientBalance");
+        require(accumulatedProtocolFees > 0, "NoFeesToCollect");
+        require(address(this).balance >= accumulatedProtocolFees, "InsufficientBalance");
 
-        uint256 amount = protocolFees;
-        protocolFees = 0;
+        uint256 amount = accumulatedProtocolFees;
+        accumulatedProtocolFees = 0;
 
         (bool sent, ) = receiver.call{value: amount}("");
         require(sent, "TransferFailed");
@@ -1127,10 +1126,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return (totalDepositedAsset, totalBorrowed, address(this).balance);
     }
 
-    function previewBorrow(address user) external view returns (uint256) {
-        return getMaxBorrowableWithLTV(user);
-    }
-
     // Admin functions
     function updateLTV(uint256 newLTV) external onlyOwner {
         require(newLTV <= MAX_LTV, "LTVExceedsMax");
@@ -1153,10 +1148,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateBorrowingRateParams(newMinRate, newVertexRate, newMaxRate, newVertexUtilization);
     }
 
-    function updateProtocolFeeParams(uint256 newFlatFee) external onlyOwner {
-        require(newFlatFee <= MAX_PROTOCOL_FEE, "FeeExceedsMax");
-        flatProtocolFee = newFlatFee;
-        emit UpdateProtocolFeeParams(newFlatFee);
+    function updateProtocolFeeParams(uint256 newFee) external onlyOwner {
+        require(newFee <= MAX_PROTOCOL_FEE, "FeeExceedsMax");
+        protocolFee = newFee;
+        emit UpdateProtocolFeeParams(newFee);
     }
 
     function updateMinDeposit(uint256 newMin) external onlyOwner {
@@ -1176,12 +1171,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 }
 
 // NativeLending contract accepts network coin as a borrowable asset for lending
-/*
 contract NativeLending is BaseLending {
 
-    constructor(address _collateralToken) BaseLending(_collateralToken) {
+    constructor(IERC4626 _collateralToken) BaseLending(_collateralToken) {
         LENDING_TYPE = "native";
     }
 
 }
-*/
