@@ -800,8 +800,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public accumulatedProtocolFees; // Accumulated protocol fees
 
     // Protocol fee params
-    uint256 public constant MAX_PROTOCOL_FEE = 4000; // 40% max allowable flat fee (in bps)
-    uint256 public protocolFee = 3000; // 30% flat fee before vertex (in bps)
+    uint256 public constant MAX_PROTOCOL_FEE = 4000; // 40% max allowable base protocol fee (in bps)
+    uint256 public protocolFee = 3000; // 30% base fee before vertex (in bps)
 
     // Base balances for rebasing (unscaled values)
     mapping(address => uint256) private baseBalances; // Unscaled balances
@@ -818,7 +818,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event UpdateLTV(uint256 newLTV);
     event UpdateBorrowingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
     event Recover(address indexed receiver, uint256 amount);
-    event UpdateProtocolFeeParams(uint256 flatFee);
+    event UpdateProtocolFee(uint256 newFee);
     event CollectProtocolFees(address indexed receiver, uint256 amount);
     event UpdateMaxAssets(uint256 newMax);
 
@@ -847,8 +847,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
         if (timeElapsed == 0 || totalDebtInEth == 0) return debtPricePerShare;
-        // Use getCurrentBorrowingRateWithStoredPrice to avoid recursion
-        uint256 rate = getCurrentBorrowingRateWithStoredPrice();
+        uint256 rate = getCurrentBorrowingRate();
         uint256 interest = (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
         uint256 interestFactor = (interest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtInEth;
         return debtPricePerShare + (debtPricePerShare * interestFactor) / (10**PRICE_PER_SHARE_DECIMALS);
@@ -965,7 +964,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function getUtilizationRate() public view returns (uint256) {
         if (totalAssets == 0) return 0;
-        // Use the stored debtPricePerShare to avoid recursion
         uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         return (totalDebtInEth * RATE_DENOMINATOR) / totalAssets;
     }
@@ -985,34 +983,16 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         }
     }
 
-    // Helper function to avoid recursion in getDebtPricePerShare
-    function getCurrentBorrowingRateWithStoredPrice() internal view returns (uint256) {
-        if (totalAssets == 0) return minBorrowingRate;
-        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
-        uint256 utilization = (totalDebtInEth * RATE_DENOMINATOR) / totalAssets;
-        if (utilization == vertexUtilization) {
-            return vertexBorrowingRate;
-        } else if (utilization < vertexUtilization) {
-            uint256 rateDiff = vertexBorrowingRate - minBorrowingRate;
-            return minBorrowingRate + (utilization * rateDiff) / vertexUtilization;
-        } else {
-            uint256 rateDiff = maxBorrowingRate - vertexBorrowingRate;
-            uint256 utilDiff = utilization - vertexUtilization;
-            uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
-            return vertexBorrowingRate + (utilDiff * rateDiff) / utilRange;
-        }
-    }
-
     function getProtocolFeeRate() public view returns (uint256) {
         uint256 utilization = getUtilizationRate();
         if (utilization <= vertexUtilization) {
             return protocolFee;
         } else {
+            uint256 maxFee = protocolFee * 2; // 2x protocolFee at 100% utilization
+            uint256 feeDiff = maxFee - protocolFee;
             uint256 utilDiff = utilization - vertexUtilization;
             uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
-            uint256 x = (utilDiff * 10**PRICE_PER_SHARE_DECIMALS) / utilRange; // Normalized utilization
-            uint256 xSquared = (x * x) / (10**PRICE_PER_SHARE_DECIMALS); // x^2
-            return protocolFee * (10**PRICE_PER_SHARE_DECIMALS + xSquared) / (10**PRICE_PER_SHARE_DECIMALS);
+            return protocolFee + (utilDiff * feeDiff) / utilRange;
         }
     }
 
@@ -1028,7 +1008,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (totalDebtShares == 0) return 0;
         uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
-        uint256 rate = getCurrentBorrowingRateWithStoredPrice();
+        uint256 rate = getCurrentBorrowingRate();
         return (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
     }
 
@@ -1204,10 +1184,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateBorrowingRateParams(newMinRate, newVertexRate, newMaxRate, newVertexUtilization);
     }
 
-    function updateProtocolFeeParams(uint256 newFee) external onlyOwner {
+    function updateProtocolFee(uint256 newFee) external onlyOwner {
         require(newFee <= MAX_PROTOCOL_FEE, "FeeExceedsMax");
         protocolFee = newFee;
-        emit UpdateProtocolFeeParams(newFee);
+        emit UpdateProtocolFee(newFee);
     }
 
     function updateMinDeposit(uint256 newMin) external onlyOwner {
