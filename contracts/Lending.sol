@@ -777,8 +777,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public totalAssets; // Total native asset deposited by suppliers (now includes interest)
     uint256 public totalCollateral; // Total collateral deposited by borrowers
     uint256 public assetsCap; // Maximum allowed deposited asset (default 0)
-    mapping(address => uint256) public userCollateral; // User's deposited collateral (in wstTokens)
-    mapping(address => uint256) public userDebtShares; // User's debt shares
+    mapping(address => uint256) private userCollateral; // User's deposited collateral (in wstTokens)
+    mapping(address => uint256) private userDebtShares; // User's debt shares
 
     uint256 public debtPricePerShare; // Price per debt share, increases over time
     uint256 public constant PRICE_PER_SHARE_DECIMALS = 18; // pricePerShare is always 18 decimals
@@ -982,6 +982,15 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         }
     }
 
+    function getBorrowingRateParams() public view returns (
+        uint256 minRate,
+        uint256 vertexRate,
+        uint256 maxRate,
+        uint256 vertexUtil
+    ) {
+        return (minBorrowingRate, vertexBorrowingRate, maxBorrowingRate, vertexUtilization);
+    }
+
     function _getProtocolFeeRate() internal view returns (uint256) {
         uint256 utilization = getUtilizationRate();
         if (utilization <= vertexUtilization) {
@@ -1022,6 +1031,24 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 userDebtInEth = (userDebtShares[user] * getPricePerShareDebt()) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 maxBorrowable = (collateralValue * ltv) / (10**PRICE_PER_SHARE_DECIMALS);
         return maxBorrowable > userDebtInEth ? maxBorrowable - userDebtInEth : 0;
+    }
+
+    function getUserMaxWithdraw(address user) public view returns (uint256) {
+        uint256 userBalance = balanceOf(user);
+        uint256 contractBalance = address(this).balance;
+        return userBalance < contractBalance ? userBalance : contractBalance;
+    }
+
+    function getUserCollateral(address user) public view returns (uint256) {
+        return userCollateral[user];
+    }
+
+    function getUserDebtShares(address user) public view returns (uint256) {
+        return userDebtShares[user];
+    }
+
+    function getUserDebtValue(address user) public view returns (uint256) {
+        return (userDebtShares[user] * getPricePerShareDebt()) / (10**PRICE_PER_SHARE_DECIMALS);
     }
 
     function _updateInterest() internal {
