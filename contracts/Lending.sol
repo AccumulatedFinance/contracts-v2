@@ -874,7 +874,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     // Override transferFrom to adjust for price per share
-    function transferFrom(address sender, address recipient, uint256 amount) public virtual override returns (bool) {
+    function transferFrom(address sender, address receiver, uint256 amount) public virtual override returns (bool) {
         uint256 baseAmount = (amount * 10**PRICE_PER_SHARE_DECIMALS) / getPricePerShare();
         require(baseAmount <= baseBalances[sender], "InsufficientBalance");
 
@@ -883,8 +883,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _approve(sender, msg.sender, currentAllowance - amount);
 
         baseBalances[sender] -= baseAmount;
-        baseBalances[recipient] += baseAmount;
-        emit Transfer(sender, recipient, amount);
+        baseBalances[receiver] += baseAmount;
+        emit Transfer(sender, receiver, amount);
         return true;
     }
 
@@ -1052,13 +1052,20 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Collect protocol fees
     function collectProtocolFees(address receiver) external onlyOwner {
         require(accumulatedProtocolFees > 0, "NoFeesToCollect");
-        require(address(this).balance >= accumulatedProtocolFees, "InsufficientBalance");
 
-        uint256 amount = accumulatedProtocolFees;
-        accumulatedProtocolFees = 0;
+        uint256 contractBalance = address(this).balance;
+        uint256 amountToCollect;
 
-        SafeTransferLib.safeTransferETH(receiver, amount);
-        emit CollectProtocolFees(receiver, amount);
+        if (accumulatedProtocolFees > contractBalance) {
+            amountToCollect = contractBalance;
+            accumulatedProtocolFees -= amountToCollect;
+        } else {
+            amountToCollect = accumulatedProtocolFees;
+            accumulatedProtocolFees = 0;
+        }
+
+        SafeTransferLib.safeTransferETH(receiver, amountToCollect);
+        emit CollectProtocolFees(receiver, amountToCollect);
     }
 
     function depositCollateral(uint256 amount) external nonReentrant {
