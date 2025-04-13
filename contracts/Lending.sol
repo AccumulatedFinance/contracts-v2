@@ -775,12 +775,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     IERC4626 public collateral; // ERC4626 collateral token
     uint256 public totalDebtShares; // Total debt shares across all users
     uint256 public totalAssets; // Total native asset deposited by suppliers (now includes interest)
-    uint256 public maxAssets; // Maximum allowed deposited asset (default 0)
-    mapping(address => uint256) public userCollateral; // User's deposited collateral (in shares)
+    uint256 public totalCollateral; // Total collateral deposited by borrowers
+    uint256 public assetsCap; // Maximum allowed deposited asset (default 0)
+    mapping(address => uint256) public userCollateral; // User's deposited collateral (in wstTokens)
     mapping(address => uint256) public userDebtShares; // User's debt shares
 
     uint256 public debtPricePerShare; // Price per debt share, increases over time
-    uint256 public minDeposit = 1; // Minimum native asset deposit
     uint256 public constant PRICE_PER_SHARE_DECIMALS = 18; // pricePerShare is always 18 decimals
     uint256 public constant SECONDS_PER_YEAR = 31_536_000; // 365 * 24 * 60 * 60
     uint256 public lastUpdateTimestamp; // Last time interest was updated
@@ -820,7 +820,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event Recover(address indexed receiver, uint256 amount);
     event UpdateProtocolFee(uint256 newFee);
     event CollectProtocolFees(address indexed receiver, uint256 amount);
-    event UpdateMaxAssets(uint256 newMax);
+    event UpdateAssetsCap(uint256 newCap);
 
     constructor(IERC4626 _collateralToken)
         ERC20(
@@ -915,8 +915,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     // Deposit/withdraw for ERC20 pool token
     function deposit(address receiver) external payable nonReentrant {
-        require(msg.value >= minDeposit, "BelowMinDeposit");
-        require(totalAssets + msg.value <= maxAssets, "ExceedsMaxAssets");
+        require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
 
         _updateInterest(); // Accrue pending interest before deposit
 
@@ -1070,10 +1069,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function depositCollateral(uint256 amount) external nonReentrant {
         _updateInterest();
-        require(amount >= minDeposit, "BelowMinDeposit");
         require(amount > 0, "ZeroAmount");
         collateral.safeTransferFrom(msg.sender, address(this), amount);
         userCollateral[msg.sender] += amount;
+        totalCollateral += amount;
         emit DepositCollateral(msg.sender, amount);
     }
 
@@ -1136,6 +1135,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 userDebtInEth = (userDebtShares[msg.sender] * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         require(remainingValue >= (userDebtInEth * 10**PRICE_PER_SHARE_DECIMALS) / ltv, "Undercollateralized");
         userCollateral[msg.sender] = remainingCollateral;
+        totalCollateral -= amount;
         collateral.safeTransfer(msg.sender, amount);
         emit WithdrawCollateral(msg.sender, amount);
     }
@@ -1163,12 +1163,13 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function getPoolStats() external view returns (
-        uint256 depositedAsset,
-        uint256 borrowedAsset,
-        uint256 availableAsset
+        uint256 depositedCollateral,
+        uint256 depositedAssets,
+        uint256 borrowedAssets,
+        uint256 availableAssets
     ) {
-        uint256 totalDebtInEth = (totalDebtShares * getPricePerShareDebt()) / (10**PRICE_PER_SHARE_DECIMALS);
-        return (totalAssets, totalDebtInEth, address(this).balance);
+        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / (10**PRICE_PER_SHARE_DECIMALS);
+        return (totalCollateral, totalAssets, totalDebtValue, address(this).balance);
     }
 
     // Admin functions
@@ -1199,17 +1200,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateProtocolFee(newFee);
     }
 
-    function updateMinDeposit(uint256 newMin) external onlyOwner {
-        require(newMin > 0, "ZeroMinDeposit");
-        require(newMin < type(uint128).max, "MinTooLarge");
-        minDeposit = newMin;
-        emit UpdateMinDeposit(newMin);
-    }
-
-    function updateMaxAssets(uint256 newMax) external onlyOwner {
-        require(newMax >= totalAssets, "NewMaxBelowCurrentAssets");
-        maxAssets = newMax;
-        emit UpdateMaxAssets(newMax);
+    function updateAssetsCap(uint256 newCap) external onlyOwner {
+        require(newCap >= totalAssets, "NewMaxBelowCurrentAssets");
+        assetsCap = newCap;
+        emit UpdateAssetsCap(newCap);
     }
 
     receive() external payable {}
