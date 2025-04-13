@@ -844,12 +844,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Calculate price per debt share
     function getPricePerShareDebt() public view returns (uint256) {
         if (totalDebtShares == 0) return 10**PRICE_PER_SHARE_DECIMALS; // 1:1 initially
-        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
-        if (timeElapsed == 0 || totalDebtInEth == 0) return debtPricePerShare;
+        if (timeElapsed == 0 || totalDebtValue == 0) return debtPricePerShare;
         uint256 rate = getBorrowingRate();
-        uint256 interest = (totalDebtInEth * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
-        uint256 interestFactor = (interest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtInEth;
+        uint256 interest = (totalDebtValue * rate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
+        uint256 interestFactor = (interest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtValue;
         return debtPricePerShare + (debtPricePerShare * interestFactor) / (10**PRICE_PER_SHARE_DECIMALS);
     }
 
@@ -963,8 +963,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function getUtilizationRate() public view returns (uint256) {
         if (totalAssets == 0) return 0;
-        uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
-        return (totalDebtInEth * RATE_DENOMINATOR) / totalAssets;
+        uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
+        return (totalDebtValue * RATE_DENOMINATOR) / totalAssets;
     }
 
     function getBorrowingRate() public view returns (uint256) {
@@ -1014,9 +1014,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function getTotalPendingInterest() public view returns (uint256) {
         if (totalDebtShares == 0) return 0;
-        uint256 totalDebtInEth = (totalDebtShares * getPricePerShareDebt()) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / (10**PRICE_PER_SHARE_DECIMALS);
         uint256 totalPrincipalInEth = (totalDebtShares * (10**PRICE_PER_SHARE_DECIMALS)) / (10**PRICE_PER_SHARE_DECIMALS); // Initial price was 1
-        return totalDebtInEth > totalPrincipalInEth ? totalDebtInEth - totalPrincipalInEth : 0;
+        return totalDebtValue > totalPrincipalInEth ? totalDebtValue - totalPrincipalInEth : 0;
     }
 
     function getUserPendingInterest(address user) public view returns (uint256) {
@@ -1056,11 +1056,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (timeElapsed > 0 && totalDebtShares > 0) {
             uint256 borrowingRate = getBorrowingRate();
             // Compute interest on the total debt in ETH
-            uint256 totalDebtInEth = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
-            uint256 borrowingInterest = (totalDebtInEth * borrowingRate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
+            uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
+            uint256 borrowingInterest = (totalDebtValue * borrowingRate * timeElapsed) / (10**PRICE_PER_SHARE_DECIMALS * SECONDS_PER_YEAR);
 
             // Update debtPricePerShare
-            uint256 interestFactor = (borrowingInterest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtInEth;
+            uint256 interestFactor = (borrowingInterest * 10**PRICE_PER_SHARE_DECIMALS) / totalDebtValue;
             debtPricePerShare = debtPricePerShare + (debtPricePerShare * interestFactor) / (10**PRICE_PER_SHARE_DECIMALS);
 
             // Calculate protocol fee
@@ -1129,13 +1129,13 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(userShares > 0, "NoDebt");
 
         // Calculate the user's total debt in ETH
-        uint256 totalDebtInEth = (userShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
+        uint256 totalDebtValue = (userShares * debtPricePerShare) / (10**PRICE_PER_SHARE_DECIMALS);
 
         // Determine repayment amount
-        uint256 repayment = msg.value > totalDebtInEth ? totalDebtInEth : msg.value;
+        uint256 repayment = msg.value > totalDebtValue ? totalDebtValue : msg.value;
 
         // If repaying the full debt, set shares to 0 to avoid rounding errors
-        if (repayment == totalDebtInEth) {
+        if (repayment == totalDebtValue) {
             totalDebtShares -= userShares;
             userDebtShares[msg.sender] = 0;
         } else {
@@ -1148,8 +1148,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit Repay(msg.sender, repayment);
 
         // Refund any excess ETH sent beyond the total debt
-        if (msg.value > totalDebtInEth) {
-            SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebtInEth);
+        if (msg.value > totalDebtValue) {
+            SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebtValue);
         }
     }
 
