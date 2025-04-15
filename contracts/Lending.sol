@@ -1205,16 +1205,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return excessShares > userCollateral[user] ? userCollateral[user] : excessShares;
     }
 
-    function getPoolStats() external view returns (
-        uint256 totalCollateral,
-        uint256 totalAssets,
-        uint256 totalDebt,
-        uint256 availableAssets
-    ) {
-        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / (10**SCALE_FACTOR);
-        return (totalCollateral, totalAssets, totalDebtValue, address(this).balance);
-    }
-
     // Admin functions
     function updateLTV(uint256 newLTV) external onlyOwner {
         require(newLTV <= MAX_LTV, "LTVExceedsMax");
