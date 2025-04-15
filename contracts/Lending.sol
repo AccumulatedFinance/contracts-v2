@@ -797,7 +797,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public vertexUtilization = 9000; // 90% in bps
 
     // Interest tracking
-    uint256 public accumulatedProtocolFees; // Accumulated protocol fees
+    uint256 public protocolFees;
 
     // Protocol fee params
     uint256 public constant MAX_PROTOCOL_FEE = 4500; // 45% max allowable base protocol fee (in bps)
@@ -1078,24 +1078,24 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
             // Update state
             totalAssets += lenderInterest;
-            accumulatedProtocolFees += fee;
+            protocolFees += fee;
             lastUpdateTimestamp = block.timestamp;
         }
     }
 
     // Collect protocol fees
     function collectProtocolFees(address receiver) external onlyOwner {
-        require(accumulatedProtocolFees > 0, "NoFeesToCollect");
+        require(protocolFees > 0, "NoFeesToCollect");
 
         uint256 contractBalance = address(this).balance;
         uint256 amountToCollect;
 
-        if (accumulatedProtocolFees > contractBalance) {
+        if (protocolFees > contractBalance) {
             amountToCollect = contractBalance;
-            accumulatedProtocolFees -= amountToCollect;
+            protocolFees -= amountToCollect;
         } else {
-            amountToCollect = accumulatedProtocolFees;
-            accumulatedProtocolFees = 0;
+            amountToCollect = protocolFees;
+            protocolFees = 0;
         }
 
         SafeTransferLib.safeTransferETH(receiver, amountToCollect);
