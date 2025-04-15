@@ -834,6 +834,22 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         debtPricePerShare = 10**SCALE_FACTOR; // Initialize to 1:1
     }
 
+    // Helper function to calculate pending interest for a given number of debt shares
+    function _getPendingInterest(uint256 shares) private view returns (uint256) {
+        if (shares == 0) return 0;
+        uint256 currentDebtValue = (shares * getPricePerShareDebt()) / (10**SCALE_FACTOR);
+        uint256 principal = shares; // Initial debtPricePerShare was 1 * 10**SCALE_FACTOR
+        return currentDebtValue > principal ? currentDebtValue - principal : 0;
+    }
+
+    function getTotalPendingInterest() public view returns (uint256) {
+        return _getPendingInterest(totalDebtShares);
+    }
+
+    function getUserPendingInterest(address user) public view returns (uint256) {
+        return _getPendingInterest(userDebtShares[user]);
+    }
+
     // Calculate price per share (liquidity index) for deposits
     function getPricePerShare() public view returns (uint256) {
         if (baseTotalSupply == 0) return 10**SCALE_FACTOR; // 1:1 initially
@@ -1012,20 +1028,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 fee = (borrowingRate * protocolFeeRateInBps) / RATE_DENOMINATOR;
         uint256 lendingRate = borrowingRate > fee ? borrowingRate - fee : 0;
         return lendingRate;
-    }
-
-    function getTotalPendingInterest() public view returns (uint256) {
-        if (totalDebtShares == 0) return 0;
-        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / (10**SCALE_FACTOR);
-        uint256 totalPrincipalInEth = (totalDebtShares * (10**SCALE_FACTOR)) / (10**SCALE_FACTOR); // Initial price was 1
-        return totalDebtValue > totalPrincipalInEth ? totalDebtValue - totalPrincipalInEth : 0;
-    }
-
-    function getUserPendingInterest(address user) public view returns (uint256) {
-        if (userDebtShares[user] == 0) return 0;
-        uint256 userDebtInEth = (userDebtShares[user] * getPricePerShareDebt()) / (10**SCALE_FACTOR);
-        uint256 userPrincipalInEth = (userDebtShares[user] * (10**SCALE_FACTOR)) / (10**SCALE_FACTOR); // Initial price was 1
-        return userDebtInEth > userPrincipalInEth ? userDebtInEth - userPrincipalInEth : 0;
     }
 
     function getUserMaxBorrow(address user) public view returns (uint256) {
