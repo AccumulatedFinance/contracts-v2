@@ -1206,9 +1206,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function getPoolStats() external view returns (
-        uint256 depositedCollateral,
-        uint256 depositedAssets,
-        uint256 borrowedAssets,
+        uint256 totalCollateral,
+        uint256 totalAssets,
+        uint256 totalDebt,
         uint256 availableAssets
     ) {
         uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / (10**SCALE_FACTOR);
