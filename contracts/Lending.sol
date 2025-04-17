@@ -1024,8 +1024,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function getLendingRate() public view returns (uint256) {
         uint256 borrowingRate = getBorrowingRate();
         uint256 protocolFeeRateInBps = _getProtocolFeeRate();
-        uint256 fee = (borrowingRate * protocolFeeRateInBps) / RATE_DENOMINATOR;
-        uint256 lendingRate = borrowingRate > fee ? borrowingRate - fee : 0;
+        uint256 utilization = getUtilizationRate();
+        
+        // Calculate lending rate as: borrowingRate * utilization * (1 - protocolFeeRate)
+        uint256 feeFactor = RATE_DENOMINATOR - protocolFeeRateInBps; // 1 - protocolFeeRate
+        uint256 lendingRate = (borrowingRate * utilization * feeFactor) / (RATE_DENOMINATOR * RATE_DENOMINATOR);
+        
         return lendingRate;
     }
 
