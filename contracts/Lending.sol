@@ -797,11 +797,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public vertexUtilization = 8000;
 
     // Interest tracking
-    uint256 public protocolFees;
+    uint256 public stabilityFees;
 
     // Protocol fee params
-    uint256 public constant MAX_PROTOCOL_FEE = 4500;
-    uint256 public protocolFee = 3000;
+    uint256 public constant MAX_STABILITY_FEE = 4500;
+    uint256 public stabilityFee = 3000;
 
     // Base balances for rebasing (unscaled values)
     mapping(address => uint256) private baseBalances; // Unscaled balances
@@ -818,8 +818,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event UpdateLTV(uint256 newLTV);
     event UpdateBorrowingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
     event Recover(address indexed receiver, uint256 amount);
-    event UpdateProtocolFee(uint256 newFee);
-    event CollectProtocolFees(address indexed receiver, uint256 amount);
+    event UpdateStabilityFee(uint256 newFee);
+    event CollectStabilityFees(address indexed receiver, uint256 amount);
     event UpdateAssetsCap(uint256 newCap);
 
     constructor(IERC4626 _collateralToken)
@@ -1008,26 +1008,26 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return (minBorrowingRate, vertexBorrowingRate, maxBorrowingRate, vertexUtilization);
     }
 
-    function _getProtocolFeeRate() internal view returns (uint256) {
+    function _getStabilityFeeRate() internal view returns (uint256) {
         uint256 utilization = getUtilizationRate();
         if (utilization <= vertexUtilization) {
-            return protocolFee;
+            return stabilityFee;
         } else {
-            uint256 maxFee = protocolFee * 2; // 2x protocolFee at 100% utilization
-            uint256 feeDiff = maxFee - protocolFee;
+            uint256 maxFee = stabilityFee * 2; // 2x stabilityFee at 100% utilization
+            uint256 feeDiff = maxFee - stabilityFee;
             uint256 utilDiff = utilization - vertexUtilization;
             uint256 utilRange = RATE_DENOMINATOR - vertexUtilization;
-            return protocolFee + (utilDiff * feeDiff) / utilRange;
+            return stabilityFee + (utilDiff * feeDiff) / utilRange;
         }
     }
 
     function getLendingRate() public view returns (uint256) {
         uint256 borrowingRate = getBorrowingRate();
-        uint256 protocolFeeRateInBps = _getProtocolFeeRate();
+        uint256 stabilityFeeRateInBps = _getStabilityFeeRate();
         uint256 utilization = getUtilizationRate();
         
-        // Calculate lending rate as: borrowingRate * utilization * (1 - protocolFeeRate)
-        uint256 feeFactor = RATE_DENOMINATOR - protocolFeeRateInBps; // 1 - protocolFeeRate
+        // Calculate lending rate as: borrowingRate * utilization * (1 - stabilityFeeRate)
+        uint256 feeFactor = RATE_DENOMINATOR - stabilityFeeRateInBps; // 1 - stabilityFeeRate
         uint256 lendingRate = (borrowingRate * utilization * feeFactor) / (RATE_DENOMINATOR * RATE_DENOMINATOR);
         
         return lendingRate;
@@ -1075,34 +1075,34 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             debtPricePerShare = debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
 
             // Calculate protocol fee
-            uint256 protocolFeeRate = _getProtocolFeeRate();
-            uint256 fee = (borrowingInterest * protocolFeeRate) / RATE_DENOMINATOR;
+            uint256 stabilityFeeRate = _getStabilityFeeRate();
+            uint256 fee = (borrowingInterest * stabilityFeeRate) / RATE_DENOMINATOR;
             uint256 lenderInterest = borrowingInterest - fee;
 
             // Update state
             totalAssets += lenderInterest;
-            protocolFees += fee;
+            stabilityFees += fee;
             lastUpdateTimestamp = block.timestamp;
         }
     }
 
     // Collect protocol fees
-    function collectProtocolFees(address receiver) external onlyOwner {
-        require(protocolFees > 0, "NoFeesToCollect");
+    function collectStabilityFees(address receiver) external onlyOwner {
+        require(stabilityFees > 0, "NoFeesToCollect");
 
         uint256 contractBalance = address(this).balance;
         uint256 amountToCollect;
 
-        if (protocolFees > contractBalance) {
+        if (stabilityFees > contractBalance) {
             amountToCollect = contractBalance;
-            protocolFees -= amountToCollect;
+            stabilityFees -= amountToCollect;
         } else {
-            amountToCollect = protocolFees;
-            protocolFees = 0;
+            amountToCollect = stabilityFees;
+            stabilityFees = 0;
         }
 
         SafeTransferLib.safeTransferETH(receiver, amountToCollect);
-        emit CollectProtocolFees(receiver, amountToCollect);
+        emit CollectStabilityFees(receiver, amountToCollect);
     }
 
     function depositCollateral(uint256 amount) external nonReentrant {
@@ -1230,10 +1230,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateBorrowingRateParams(newMinRate, newVertexRate, newMaxRate, newVertexUtilization);
     }
 
-    function updateProtocolFee(uint256 newFee) external onlyOwner {
-        require(newFee <= MAX_PROTOCOL_FEE, "FeeExceedsMax");
-        protocolFee = newFee;
-        emit UpdateProtocolFee(newFee);
+    function updateStabilityFee(uint256 newFee) external onlyOwner {
+        require(newFee <= MAX_STABILITY_FEE, "FeeExceedsMax");
+        stabilityFee = newFee;
+        emit UpdateStabilityFee(newFee);
     }
 
     function updateAssetsCap(uint256 newCap) external onlyOwner {
