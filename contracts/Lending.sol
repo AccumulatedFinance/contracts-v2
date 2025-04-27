@@ -947,17 +947,33 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return true;
     }
 
+    /**
+     * @notice Mints rebasing pool tokens
+     * @param account Recipient of the tokens
+     * @param amount Amount of unscaled tokens to mint
+     */
     function _mint(address account, uint256 amount) internal virtual override {
+        require(account != address(0), "ERC20: mint to the zero address");
+        _beforeTokenTransfer(address(0), account, amount);
         baseTotalSupply += amount;
         baseBalances[account] += amount;
         emit Transfer(address(0), account, (amount * getPricePerShare()) / SCALE_FACTOR);
+        _afterTokenTransfer(address(0), account, amount);
     }
 
+    /**
+     * @notice Burns rebasing pool tokens
+     * @param account Account to burn tokens from
+     * @param amount Amount of unscaled tokens to burn
+     */
     function _burn(address account, uint256 amount) internal virtual override {
-        require(baseBalances[account] >= amount, "BurnExceedsBalance");
+        require(account != address(0), "ERC20: burn from the zero address");
+        require(baseBalances[account] >= amount, "ERC20: burn amount exceeds balance");
+        _beforeTokenTransfer(account, address(0), amount);
         baseTotalSupply -= amount;
         baseBalances[account] -= amount;
         emit Transfer(account, address(0), (amount * getPricePerShare()) / SCALE_FACTOR);
+        _afterTokenTransfer(account, address(0), amount);
     }
 
     /**
