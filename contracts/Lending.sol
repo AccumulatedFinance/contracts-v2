@@ -766,6 +766,11 @@ interface IERC4626 is IERC20Metadata {
     function pricePerShare() external view returns (uint256); // Asset value per share (used in BaseLending)
 }
 
+/**
+ * @title BaseLending
+ * @notice Abstract contract for a lending protocol with asset borrowing against ERC4626 collateral
+ * @dev Inherits Ownable, ReentrancyGuard, and ERC20 for pool tokens
+ */
 abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     using SafeTransferLib for IERC4626;
 
@@ -986,7 +991,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @param receiver Recipient of the assets
      */
     function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
-        // msg.sender is the caller (e.g., Gnosis Safe address), not the transaction submitter
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets > 0, "NoDeposits");
@@ -1198,14 +1202,13 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @param amount Amount of collateral to withdraw
      */
     function withdrawCollateral(uint256 amount) public virtual nonReentrant {
-        // msg.sender is the caller (e.g., Gnosis Safe address), not the transaction submitter
         _updateInterest();
         require(amount > 0, "ZeroAmount");
         uint256 currentCollateral = userCollateral[msg.sender];
         require(currentCollateral >= amount, "InsufficientCollateral");
         uint256 remainingCollateral = currentCollateral - amount;
         uint256 userDebtValue = getUserDebtValue(msg.sender);
-        require(userDebtValue <= getMaxDebtForCollateral(remainingCollateral), "Undercollaterized");
+        require(userDebtValue <= getMaxDebtForCollateral(remainingCollateral), "InsufficientCollateral");
         userCollateral[msg.sender] = remainingCollateral;
         totalCollateral -= amount;
         collateral.safeTransfer(msg.sender, amount);
@@ -1246,7 +1249,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 maxDebt = getMaxDebtForCollateral(collateralShares);
         if (borrowed >= maxDebt) return 0;
         uint256 excessValue = maxDebt - borrowed;
+        require(collateral.pricePerShare() > 0, "InvalidPrice");
         uint256 excessShares = (excessValue * SCALE_FACTOR) / collateral.pricePerShare();
+        // Cap at collateralShares to prevent returning more than user's collateral due to rounding or price changes
         return excessShares > collateralShares ? collateralShares : excessShares;
     }
 
