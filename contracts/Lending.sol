@@ -782,10 +782,10 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public totalAssets; // Total asset deposited by suppliers (includes interest)
     uint256 public totalCollateral; // Total collateral deposited by borrowers
     uint256 public assetsCap; // Maximum allowed asset deposits (0 = no cap)
-    mapping(address => uint256) private userCollateral; // User's collateral (in wstTokens)
-    mapping(address => uint256) private userDebtShares; // User's debt shares
+    mapping(address => uint256) internal userCollateral; // User's collateral (in wstTokens)
+    mapping(address => uint256) internal userDebtShares; // User's debt shares
 
-    uint256 private debtPricePerShare = 10**18; // Price per debt share, increases with interest
+    uint256 internal debtPricePerShare = 10**18; // Price per debt share, increases with interest
     uint256 public constant SCALE_FACTOR = 10**18; // Scaling factor for 18 decimals
     uint256 public constant SECONDS_PER_YEAR = 31_536_000; // Seconds in a year
     uint256 public lastUpdateTimestamp; // Last interest update timestamp
@@ -815,7 +815,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public constant LIQUIDATION_THRESHOLD = 1e18; // Health factor < 1
 
     // Base balances for rebasing
-    mapping(address => uint256) private baseBalances; // Unscaled balances
+    mapping(address => uint256) internal baseBalances; // Unscaled balances
     uint256 private baseTotalSupply; // Unscaled total supply
 
     // Events
@@ -976,50 +976,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _afterTokenTransfer(account, address(0), amount);
     }
 
-    /**
-     * @notice Recovers excess assets not tracked in totalAssets
-     * @param amount Amount to recover
-     * @param receiver Recipient of the recovered assets
-     */
-    function recover(uint256 amount, address receiver) public virtual onlyOwner {
-        uint256 excessBalance = address(this).balance > totalAssets ? address(this).balance - totalAssets : 0;
-        require(amount <= excessBalance, "AmountExceedsExcess");
-        SafeTransferLib.safeTransferETH(receiver, amount);
-        emit Recover(receiver, amount);
-    }
-
-    /**
-     * @notice Deposits asset to supply liquidity, minting pool tokens
-     * @param receiver Address to receive pool tokens
-     */
-    function deposit(address receiver) public payable virtual nonReentrant {
-        require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
-        _updateInterest();
-        uint256 baseTokens = (msg.value * SCALE_FACTOR) / getPricePerShare();
-        totalAssets += msg.value;
-        _mint(receiver, baseTokens);
-        emit Deposit(msg.sender, receiver, msg.value, baseTokens);
-    }
-
-    /**
-     * @notice Withdraws assets, burning pool tokens
-     * @param amount Amount of assets to withdraw
-     * @param receiver Recipient of the assets
-     */
-    function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
-        require(amount > 0, "ZeroAmount");
-        require(amount <= balanceOf(msg.sender), "InsufficientBalance");
-        require(totalAssets > 0, "NoDeposits");
-        _updateInterest();
-        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
-        require(baseTokens <= baseBalances[msg.sender], "InsufficientBaseBalance");
-        require(address(this).balance >= amount, "InsufficientContractBalance");
-        totalAssets -= amount;
-        _burn(msg.sender, baseTokens);
-        SafeTransferLib.safeTransferETH(receiver, amount);
-        emit Withdraw(msg.sender, receiver, amount, baseTokens);
-    }
-
     function getVersion() public view virtual returns (string memory) {
         return string(abi.encodePacked(VERSION, ":", LENDING_TYPE));
     }
@@ -1150,15 +1106,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         }
     }
 
-    function collectStabilityFees(address receiver) public onlyOwner {
-        require(stabilityFees > 0, "NoFeesToCollect");
-        uint256 contractBalance = address(this).balance;
-        uint256 amountToCollect = stabilityFees > contractBalance ? contractBalance : stabilityFees;
-        stabilityFees -= amountToCollect;
-        SafeTransferLib.safeTransferETH(receiver, amountToCollect);
-        emit CollectStabilityFees(receiver, amountToCollect);
-    }
-
     /**
      * @notice Deposits ERC4626 collateral
      * @param amount Amount of collateral to deposit
@@ -1170,47 +1117,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         userCollateral[msg.sender] += amount;
         totalCollateral += amount;
         emit DepositCollateral(msg.sender, amount);
-    }
-
-    /**
-     * @notice Borrows asset against collateral
-     * @param amount Amount of asset to borrow
-     */
-    function borrow(uint256 amount) public virtual nonReentrant {
-        _updateInterest();
-        require(amount > 0, "ZeroAmount");
-        require(address(this).balance >= amount, "InsufficientBalance");
-        require(amount <= getUserMaxBorrow(msg.sender), "InsufficientCollateral");
-        uint256 newDebtShares = (amount * SCALE_FACTOR) / debtPricePerShare;
-        userDebtShares[msg.sender] += newDebtShares;
-        totalDebtShares += newDebtShares;
-        SafeTransferLib.safeTransferETH(msg.sender, amount);
-        emit Borrow(msg.sender, amount);
-    }
-
-    /**
-     * @notice Repays debt with asset
-     */
-    function repay() public payable virtual nonReentrant {
-        _updateInterest();
-        require(msg.value > 0, "ZeroAmount");
-        uint256 shares = userDebtShares[msg.sender];
-        require(shares > 0, "NoDebt");
-        uint256 dpps = debtPricePerShare;
-        uint256 totalDebtValue = (shares * dpps) / SCALE_FACTOR;
-        uint256 repayment = msg.value > totalDebtValue ? totalDebtValue : msg.value;
-        if (repayment == totalDebtValue) {
-            totalDebtShares -= shares;
-            userDebtShares[msg.sender] = 0;
-        } else {
-            uint256 sharesRepaid = (repayment * SCALE_FACTOR) / dpps;
-            totalDebtShares -= sharesRepaid;
-            userDebtShares[msg.sender] -= sharesRepaid;
-        }
-        if (msg.value > totalDebtValue) {
-            SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebtValue);
-        }
-        emit Repay(msg.sender, repayment);
     }
 
     /**
@@ -1282,38 +1188,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
     }
 
-    /**
-     * @notice Liquidates a user's position
-     * @param user User to liquidate
-     * @param debtSharesToCover Debt shares to cover
-     */
-    function liquidate(address user, uint256 debtSharesToCover) public payable virtual onlyLiquidator nonReentrant {
-        _updateInterest();
-        require(isLiquidatable(user), "PositionNotLiquidatable");
-        require(debtSharesToCover > 0 && debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
-        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
-        uint256 collateralPricePerShare = collateral.pricePerShare();
-        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
-        uint256 bonusAmount = (debtToCover * liquidationBonus) / BPS_DENOMINATOR;
-        uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
-        bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
-        uint256 totalValueToSeize = debtToCover + bonusAmount;
-        require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
-        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
-        require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
-        require(msg.value >= debtToCover, "InsufficientMsgValue");
-        if (msg.value > debtToCover) {
-            uint256 refund = msg.value - debtToCover;
-            SafeTransferLib.safeTransferETH(msg.sender, refund);
-        }
-        userDebtShares[user] -= debtSharesToCover;
-        totalDebtShares -= debtSharesToCover;
-        userCollateral[user] -= collateralSharesToSeize;
-        totalCollateral -= collateralSharesToSeize;
-        collateral.safeTransfer(msg.sender, collateralSharesToSeize);
-        emit Liquidation(user, msg.sender, debtToCover, collateralSharesToSeize);
-    }
-
     function updateLTV(uint256 newLTV) public onlyOwner {
         require(newLTV <= MAX_LTV, "LTVExceedsMax");
         ltv = newLTV;
@@ -1366,8 +1240,137 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 // NativeLending contract accepts network coin as a borrowable asset for lending
 contract NativeLending is BaseLending {
 
+    using SafeTransferLib for IERC4626;
+
     constructor(IERC4626 _collateralToken) BaseLending(_collateralToken) {
         LENDING_TYPE = "native";
     }
+
+    /**
+     * @notice Recovers excess assets not tracked in totalAssets
+     * @param amount Amount to recover
+     * @param receiver Recipient of the recovered assets
+     */
+    function recover(uint256 amount, address receiver) public virtual onlyOwner {
+        uint256 excessBalance = address(this).balance > totalAssets ? address(this).balance - totalAssets : 0;
+        require(amount <= excessBalance, "AmountExceedsExcess");
+        SafeTransferLib.safeTransferETH(receiver, amount);
+        emit Recover(receiver, amount);
+    }
+
+    /**
+     * @notice Deposits asset to supply liquidity, minting pool tokens
+     * @param receiver Address to receive pool tokens
+     */
+    function deposit(address receiver) public payable virtual nonReentrant {
+        require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
+        _updateInterest();
+        uint256 baseTokens = (msg.value * SCALE_FACTOR) / getPricePerShare();
+        totalAssets += msg.value;
+        _mint(receiver, baseTokens);
+        emit Deposit(msg.sender, receiver, msg.value, baseTokens);
+    }
+
+    /**
+     * @notice Withdraws assets, burning pool tokens
+     * @param amount Amount of assets to withdraw
+     * @param receiver Recipient of the assets
+     */
+    function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
+        require(amount > 0, "ZeroAmount");
+        require(amount <= balanceOf(msg.sender), "InsufficientBalance");
+        require(totalAssets > 0, "NoDeposits");
+        _updateInterest();
+        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        require(baseTokens <= baseBalances[msg.sender], "InsufficientBaseBalance");
+        require(address(this).balance >= amount, "InsufficientContractBalance");
+        totalAssets -= amount;
+        _burn(msg.sender, baseTokens);
+        SafeTransferLib.safeTransferETH(receiver, amount);
+        emit Withdraw(msg.sender, receiver, amount, baseTokens);
+    }
+
+        /**
+     * @notice Borrows asset against collateral
+     * @param amount Amount of asset to borrow
+     */
+    function borrow(uint256 amount) public virtual nonReentrant {
+        _updateInterest();
+        require(amount > 0, "ZeroAmount");
+        require(address(this).balance >= amount, "InsufficientBalance");
+        require(amount <= getUserMaxBorrow(msg.sender), "InsufficientCollateral");
+        uint256 newDebtShares = (amount * SCALE_FACTOR) / debtPricePerShare;
+        userDebtShares[msg.sender] += newDebtShares;
+        totalDebtShares += newDebtShares;
+        SafeTransferLib.safeTransferETH(msg.sender, amount);
+        emit Borrow(msg.sender, amount);
+    }
+
+    /**
+     * @notice Repays debt with asset
+     */
+    function repay() public payable virtual nonReentrant {
+        _updateInterest();
+        require(msg.value > 0, "ZeroAmount");
+        uint256 shares = userDebtShares[msg.sender];
+        require(shares > 0, "NoDebt");
+        uint256 dpps = debtPricePerShare;
+        uint256 totalDebtValue = (shares * dpps) / SCALE_FACTOR;
+        uint256 repayment = msg.value > totalDebtValue ? totalDebtValue : msg.value;
+        if (repayment == totalDebtValue) {
+            totalDebtShares -= shares;
+            userDebtShares[msg.sender] = 0;
+        } else {
+            uint256 sharesRepaid = (repayment * SCALE_FACTOR) / dpps;
+            totalDebtShares -= sharesRepaid;
+            userDebtShares[msg.sender] -= sharesRepaid;
+        }
+        if (msg.value > totalDebtValue) {
+            SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebtValue);
+        }
+        emit Repay(msg.sender, repayment);
+    }
+
+        /**
+     * @notice Liquidates a user's position
+     * @param user User to liquidate
+     * @param debtSharesToCover Debt shares to cover
+     */
+    function liquidate(address user, uint256 debtSharesToCover) public payable virtual onlyLiquidator nonReentrant {
+        _updateInterest();
+        require(isLiquidatable(user), "PositionNotLiquidatable");
+        require(debtSharesToCover > 0 && debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
+        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 collateralPricePerShare = collateral.pricePerShare();
+        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
+        uint256 bonusAmount = (debtToCover * liquidationBonus) / BPS_DENOMINATOR;
+        uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
+        bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
+        uint256 totalValueToSeize = debtToCover + bonusAmount;
+        require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
+        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
+        require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
+        require(msg.value >= debtToCover, "InsufficientMsgValue");
+        if (msg.value > debtToCover) {
+            uint256 refund = msg.value - debtToCover;
+            SafeTransferLib.safeTransferETH(msg.sender, refund);
+        }
+        userDebtShares[user] -= debtSharesToCover;
+        totalDebtShares -= debtSharesToCover;
+        userCollateral[user] -= collateralSharesToSeize;
+        totalCollateral -= collateralSharesToSeize;
+        collateral.safeTransfer(msg.sender, collateralSharesToSeize);
+        emit Liquidation(user, msg.sender, debtToCover, collateralSharesToSeize);
+    }
+
+    function collectStabilityFees(address receiver) public onlyOwner {
+        require(stabilityFees > 0, "NoFeesToCollect");
+        uint256 contractBalance = address(this).balance;
+        uint256 amountToCollect = stabilityFees > contractBalance ? contractBalance : stabilityFees;
+        stabilityFees -= amountToCollect;
+        SafeTransferLib.safeTransferETH(receiver, amountToCollect);
+        emit CollectStabilityFees(receiver, amountToCollect);
+    }
+
 
 }
