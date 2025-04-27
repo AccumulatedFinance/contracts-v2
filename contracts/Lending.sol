@@ -870,17 +870,17 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (baseTotalSupply == 0) return SCALE_FACTOR; // 1:1 initially
         
         uint256 grossInterest = getTotalPendingInterest();
-        uint256 totalEth = totalAssets;
+        uint256 totalValue = totalAssets;
         
         if (grossInterest > 0) {
             // Calculate the stability fee portion
             uint256 stabilityFeeRate = _getStabilityFeeRate();
             uint256 fee = (grossInterest * stabilityFeeRate) / RATE_DENOMINATOR;
             uint256 netInterest = grossInterest - fee;
-            totalEth += netInterest;
+            totalValue += netInterest;
         }
         
-        return (totalEth * SCALE_FACTOR) / baseTotalSupply;
+        return (totalValue * SCALE_FACTOR) / baseTotalSupply;
     }
 
     // Calculate price per debt share
@@ -1062,11 +1062,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     function getUserMaxBorrow(address user) public view returns (uint256) {
         uint256 collateralValue = _getCollateralValue(user);
-        uint256 userDebtInEth = (userDebtShares[user] * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 userDebtValue = (userDebtShares[user] * getPricePerShareDebt()) / SCALE_FACTOR;
         // Scale ltv from bps to a SCALE_FACTOR multiplier
         uint256 scaledLtv = (ltv * SCALE_FACTOR) / RATE_DENOMINATOR;
         uint256 maxBorrowable = (collateralValue * scaledLtv) / SCALE_FACTOR;
-        return maxBorrowable > userDebtInEth ? maxBorrowable - userDebtInEth : 0;
+        return maxBorrowable > userDebtValue ? maxBorrowable - userDebtValue : 0;
     }
 
     function getUserMaxWithdraw(address user) public view returns (uint256) {
@@ -1146,11 +1146,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
         uint256 collateralValue = _getCollateralValue(msg.sender);
-        uint256 userDebtInEth = (userDebtShares[msg.sender] * debtPricePerShare) / SCALE_FACTOR;
-        uint256 newDebtInEth = userDebtInEth + amount;
+        uint256 userDebtValue = (userDebtShares[msg.sender] * debtPricePerShare) / SCALE_FACTOR;
+        uint256 newDebtValue = userDebtValue + amount;
         // Scale ltv from bps to a SCALE_FACTOR multiplier
         uint256 scaledLtv = (ltv * SCALE_FACTOR) / RATE_DENOMINATOR;
-        require(newDebtInEth <= (collateralValue * scaledLtv) / SCALE_FACTOR, "InsufficientCollateral");
+        require(newDebtValue <= (collateralValue * scaledLtv) / SCALE_FACTOR, "InsufficientCollateral");
 
         // Convert asset amount to debt shares
         uint256 newDebtShares = (amount * SCALE_FACTOR) / debtPricePerShare;
@@ -1199,10 +1199,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(userCollateral[msg.sender] >= amount, "InsufficientCollateral");
         uint256 remainingCollateral = userCollateral[msg.sender] - amount;
         uint256 remainingValue = _getCollateralValueFromShares(remainingCollateral);
-        uint256 userDebtInEth = (userDebtShares[msg.sender] * debtPricePerShare) / SCALE_FACTOR;
-        // Scale ltv from bps to a SCALE_FACTOR multiplier
+        uint256 userDebtValue = (userDebtShares[msg.sender] * debtPricePerShare) / SCALE_FACTOR;
         uint256 scaledLtv = (ltv * SCALE_FACTOR) / RATE_DENOMINATOR;
-        require(remainingValue >= (userDebtInEth * SCALE_FACTOR) / scaledLtv, "Undercollateralized");
+        require(userDebtValue <= (remainingValue * scaledLtv) / SCALE_FACTOR, "Undercollateralized");
         userCollateral[msg.sender] = remainingCollateral;
         totalCollateral -= amount;
         collateral.safeTransfer(msg.sender, amount);
@@ -1219,7 +1218,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (borrowed == 0) return type(uint256).max;
         uint256 collateralValue = _getCollateralValue(user);
         uint256 scaledLtv = (ltv * SCALE_FACTOR) / RATE_DENOMINATOR;
-        return (collateralValue * SCALE_FACTOR) / (borrowed * scaledLtv / SCALE_FACTOR);
+        return (collateralValue * scaledLtv) / borrowed;
     }
 
     function isLiquidatable(address user) public view returns (bool) {
