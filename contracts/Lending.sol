@@ -799,9 +799,15 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Interest tracking
     uint256 public stabilityFees;
 
-    // Protocol fee params
+    // Stability fee params
     uint256 public constant MAX_STABILITY_FEE = 4500;
     uint256 public stabilityFee = 3000;
+
+    // liquidation params
+    address private liquidator; // Address authorized to perform liquidations
+    uint256 public liquidationBonus = 500; // 5% = 500 bps
+    uint256 public constant MAX_LIQUIDATION_BONUS = 1000; // 10% = 1000 bps
+    uint256 public constant LIQUIDATION_THRESHOLD = 1e18; // Health factor < 1
 
     // Base balances for rebasing (unscaled values)
     mapping(address => uint256) private baseBalances; // Unscaled balances
@@ -821,6 +827,15 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event UpdateStabilityFee(uint256 newFee);
     event CollectStabilityFees(address indexed receiver, uint256 amount);
     event UpdateAssetsCap(uint256 newCap);
+    event Liquidation(address indexed user, address indexed liquidator, uint256 debtCovered, uint256 collateralSeized);
+    event UpdateLiquidator(address indexed newLiquidator);
+    event UpdateLiquidationBonus(uint256 newBonus);
+
+    // Modifier for liquidator-only access
+    modifier onlyLiquidator() {
+        require(msg.sender == liquidator, "NotLiquidator");
+        _;
+    }
 
     constructor(IERC4626 _collateralToken)
         ERC20(
@@ -831,6 +846,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     {
         collateral = _collateralToken;
         lastUpdateTimestamp = block.timestamp;
+        liquidator = msg.sender;
     }
 
     // Helper function to calculate pending interest for a given number of debt shares
@@ -866,7 +882,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         
         return (totalEth * SCALE_FACTOR) / baseTotalSupply;
     }
-    
+
     // Calculate price per debt share
     function getPricePerShareDebt() public view returns (uint256) {
         if (totalDebtShares == 0) return SCALE_FACTOR; // 1:1 initially
@@ -932,7 +948,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     // Recover excess ETH
-    function recover(uint256 amount, address receiver) external onlyOwner {
+    function recover(uint256 amount, address receiver) public virtual onlyOwner {
         uint256 excessBalance = address(this).balance > totalAssets ? address(this).balance - totalAssets : 0;
         require(amount <= excessBalance, "AmountExceedsExcess");
         require(address(this).balance >= totalAssets + amount, "InsufficientBalance");
@@ -942,7 +958,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     // Deposit/withdraw for ERC20 pool token
-    function deposit(address receiver) external payable nonReentrant {
+    function deposit(address receiver) public payable virtual nonReentrant {
         require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
 
         _updateInterest(); // Accrue pending interest before deposit
@@ -955,7 +971,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit Deposit(msg.sender, receiver, msg.value, baseTokens);
     }
 
-    function withdraw(uint256 amount, address receiver) external nonReentrant {
+    function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets > 0, "NoDeposits");
@@ -1098,7 +1114,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     // Collect protocol fees
-    function collectStabilityFees(address receiver) external onlyOwner {
+    function collectStabilityFees(address receiver) public onlyOwner {
         require(stabilityFees > 0, "NoFeesToCollect");
 
         uint256 contractBalance = address(this).balance;
@@ -1116,7 +1132,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit CollectStabilityFees(receiver, amountToCollect);
     }
 
-    function depositCollateral(uint256 amount) external nonReentrant {
+    function depositCollateral(uint256 amount) public virtual nonReentrant {
         _updateInterest();
         require(amount > 0, "ZeroAmount");
         collateral.safeTransferFrom(msg.sender, address(this), amount);
@@ -1125,7 +1141,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit DepositCollateral(msg.sender, amount);
     }
 
-    function borrow(uint256 amount) external nonReentrant {
+    function borrow(uint256 amount) public virtual nonReentrant {
         _updateInterest();
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
@@ -1136,7 +1152,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 scaledLtv = (ltv * SCALE_FACTOR) / RATE_DENOMINATOR;
         require(newDebtInEth <= (collateralValue * scaledLtv) / SCALE_FACTOR, "InsufficientCollateral");
 
-        // Convert ETH amount to debt shares
+        // Convert asset amount to debt shares
         uint256 newDebtShares = (amount * SCALE_FACTOR) / debtPricePerShare;
         userDebtShares[msg.sender] += newDebtShares;
         totalDebtShares += newDebtShares;
@@ -1145,7 +1161,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit Borrow(msg.sender, amount);
     }
 
-    function repay() external payable nonReentrant {
+    function repay() public payable virtual nonReentrant {
         _updateInterest();
         require(msg.value > 0, "ZeroAmount");
 
@@ -1177,7 +1193,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         }
     }
 
-    function withdrawCollateral(uint256 amount) external nonReentrant {
+    function withdrawCollateral(uint256 amount) public virtual nonReentrant {
         _updateInterest();
         require(amount > 0, "LessThanMin");
         require(userCollateral[msg.sender] >= amount, "InsufficientCollateral");
@@ -1194,20 +1210,23 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     // Read methods
-    function getUserCollateralValue(address user) external view returns (uint256) {
+    function getUserCollateralValue(address user) public view returns (uint256) {
         return _getCollateralValue(user);
     }
 
-    function getUserHealth(address user) external view returns (uint256) {
-        uint256 borrowed = (userDebtShares[user] * getPricePerShareDebt()) / SCALE_FACTOR;
+    function getUserHealth(address user) public view returns (uint256) {
+        uint256 borrowed = getUserDebtValue(user);
         if (borrowed == 0) return type(uint256).max;
         uint256 collateralValue = _getCollateralValue(user);
-        // Scale ltv from bps to a SCALE_FACTOR multiplier
         uint256 scaledLtv = (ltv * SCALE_FACTOR) / RATE_DENOMINATOR;
         return (collateralValue * SCALE_FACTOR) / (borrowed * scaledLtv / SCALE_FACTOR);
     }
 
-    function getUserMaxWithdrawCollateral(address user) external view returns (uint256) {
+    function isLiquidatable(address user) public view returns (bool) {
+        return getUserHealth(user) < LIQUIDATION_THRESHOLD;
+    }
+
+    function getUserMaxWithdrawCollateral(address user) public view returns (uint256) {
         uint256 borrowed = (userDebtShares[user] * getPricePerShareDebt()) / SCALE_FACTOR;
         if (borrowed == 0) return userCollateral[user];
         uint256 collateralValue = _getCollateralValue(user);
@@ -1219,8 +1238,50 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         return excessShares > userCollateral[user] ? userCollateral[user] : excessShares;
     }
 
+    // Liquidator functions
+    function liquidate(address user, uint256 debtSharesToCover) public payable virtual onlyLiquidator nonReentrant {
+        _updateInterest(); // Accrue interest to ensure debt and collateral values are up-to-date
+        require(isLiquidatable(user), "PositionNotLiquidatable");
+        require(debtSharesToCover > 0 && debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
+        
+        // Calculate debt value equivalent
+        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
+        
+        // Calculate collateral to seize
+        uint256 collateralPricePerShare = collateral.pricePerShare();
+        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
+        
+        // Apply liquidation bonus, capped at available collateral
+        uint256 bonusAmount = (debtToCover * liquidationBonus) / RATE_DENOMINATOR;
+        uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
+        bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
+        uint256 totalValueToSeize = debtToCover + bonusAmount;
+        
+        require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
+        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
+        require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
+        
+        // Transfer asset from liquidator to protocol
+        require(msg.value >= debtToCover, "InsufficientMsgValue");
+        if (msg.value > debtToCover) {
+            uint256 refund = msg.value - debtToCover;
+            SafeTransferLib.safeTransferETH(msg.sender, refund);
+        }
+        
+        // Update user and protocol state
+        userDebtShares[user] -= debtSharesToCover;
+        totalDebtShares -= debtSharesToCover;
+        userCollateral[user] -= collateralSharesToSeize;
+        totalCollateral -= collateralSharesToSeize;
+        
+        // Transfer collateral to liquidator
+        collateral.safeTransfer(msg.sender, collateralSharesToSeize);
+        
+        emit Liquidation(user, msg.sender, debtToCover, collateralSharesToSeize);
+    }
+
     // Admin functions
-    function updateLTV(uint256 newLTV) external onlyOwner {
+    function updateLTV(uint256 newLTV) public onlyOwner {
         require(newLTV <= MAX_LTV, "LTVExceedsMax");
         ltv = newLTV;
         emit UpdateLTV(newLTV);
@@ -1231,7 +1292,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 newVertexRate,
         uint256 newMaxRate,
         uint256 newVertexUtilization
-    ) external onlyOwner {
+    ) public onlyOwner {
         require(newMinRate <= newVertexRate && newVertexRate <= newMaxRate, "InvalidRateOrder");
         require(newVertexUtilization > 0 && newVertexUtilization < RATE_DENOMINATOR, "InvalidVertexUtilization");
         minBorrowingRate = newMinRate;
@@ -1241,16 +1302,28 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateBorrowingRateParams(newMinRate, newVertexRate, newMaxRate, newVertexUtilization);
     }
 
-    function updateStabilityFee(uint256 newFee) external onlyOwner {
+    function updateStabilityFee(uint256 newFee) public onlyOwner {
         require(newFee <= MAX_STABILITY_FEE, "FeeExceedsMax");
         stabilityFee = newFee;
         emit UpdateStabilityFee(newFee);
     }
 
-    function updateAssetsCap(uint256 newCap) external onlyOwner {
+    function updateAssetsCap(uint256 newCap) public onlyOwner {
         require(newCap >= totalAssets, "NewMaxBelowCurrentAssets");
         assetsCap = newCap;
         emit UpdateAssetsCap(newCap);
+    }
+
+    function updateLiquidator(address newLiquidator) public onlyOwner {
+        require(newLiquidator != address(0), "InvalidAddress");
+        liquidator = newLiquidator;
+        emit UpdateLiquidator(newLiquidator);
+    }
+
+    function updateLiquidationBonus(uint256 newBonus) public onlyOwner {
+        require(newBonus <= MAX_LIQUIDATION_BONUS, "BonusExceedsMax");
+        liquidationBonus = newBonus;
+        emit UpdateLiquidationBonus(newBonus);
     }
 
     receive() external payable {}
