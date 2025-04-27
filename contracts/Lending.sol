@@ -970,10 +970,12 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         require(account != address(0), "ERC20: burn from the zero address");
         require(baseBalances[account] >= amount, "ERC20: burn amount exceeds balance");
         _beforeTokenTransfer(account, address(0), amount);
-        baseTotalSupply -= amount;
-        baseBalances[account] -= amount;
+        unchecked {
+            baseTotalSupply -= amount;
+            baseBalances[account] -= amount;
+        }
         emit Transfer(account, address(0), (amount * getPricePerShare()) / SCALE_FACTOR);
-        _afterTokenTransfer(account, address(0), amount);
+        _afterTokenTransfer(address(0), account, amount);
     }
 
     function getVersion() public view virtual returns (string memory) {
@@ -1059,12 +1061,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 userDebtValue = getUserDebtValue(user);
         uint256 maxDebt = getMaxDebtForCollateral(userCollateral[user]);
         return maxDebt > userDebtValue ? maxDebt - userDebtValue : 0;
-    }
-
-    function getUserMaxWithdraw(address user) public view returns (uint256) {
-        uint256 userBalance = balanceOf(user);
-        uint256 contractBalance = address(this).balance;
-        return userBalance < contractBalance ? userBalance : contractBalance;
     }
 
     function getUserCollateral(address user) public view returns (uint256) {
@@ -1233,7 +1229,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         emit UpdateLiquidationBonus(newBonus);
     }
 
-    receive() external payable {}
 }
 
 
@@ -1244,6 +1239,14 @@ contract NativeLending is BaseLending {
 
     constructor(IERC4626 _collateralToken) BaseLending(_collateralToken) {
         LENDING_TYPE = "native";
+    }
+
+    receive() external payable {}
+
+    function getUserMaxWithdraw(address user) public view returns (uint256) {
+        uint256 userBalance = balanceOf(user);
+        uint256 maxAvailable = address(this).balance;
+        return userBalance < maxAvailable ? userBalance : maxAvailable;
     }
 
     /**
@@ -1290,7 +1293,7 @@ contract NativeLending is BaseLending {
         emit Withdraw(msg.sender, receiver, amount, baseTokens);
     }
 
-        /**
+    /**
      * @notice Borrows asset against collateral
      * @param amount Amount of asset to borrow
      */
