@@ -816,7 +816,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     // Base balances for rebasing
     mapping(address => uint256) internal baseBalances; // Unscaled balances
-    uint256 private baseTotalSupply; // Unscaled total supply
+    uint256 internal baseTotalSupply; // Unscaled total supply
 
     // Events
     event Deposit(address indexed caller, address indexed receiver, uint256 assets, uint256 shares);
