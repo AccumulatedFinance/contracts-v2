@@ -1196,6 +1196,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 newMaxRate,
         uint256 newVertexUtilization
     ) public onlyOwner {
+        _updateInterest(); // Lock in current interest with old params
         require(newMinRate <= newVertexRate && newVertexRate <= newMaxRate, "InvalidRateOrder");
         require(newVertexUtilization > 0 && newVertexUtilization < BPS_DENOMINATOR, "InvalidVertexUtilization");
         minBorrowingRate = newMinRate;
@@ -1206,6 +1207,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     function updateStabilityFee(uint256 newFee) public onlyOwner {
+        _updateInterest(); // Lock in current interest with old fee
         require(newFee <= MAX_STABILITY_FEE, "FeeExceedsMax");
         stabilityFee = newFee;
         emit UpdateStabilityFee(newFee);
@@ -1367,6 +1369,7 @@ contract NativeLending is BaseLending {
     }
 
     function collectStabilityFees(address receiver) public onlyOwner {
+        _updateInterest(); // Ensure fees are up-to-date before collecting
         require(stabilityFees > 0, "NoFeesToCollect");
         uint256 contractBalance = address(this).balance;
         uint256 amountToCollect = stabilityFees > contractBalance ? contractBalance : stabilityFees;
