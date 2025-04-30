@@ -1252,18 +1252,6 @@ contract NativeLending is BaseLending {
     }
 
     /**
-     * @notice Recovers excess assets not tracked in totalAssets
-     * @param amount Amount to recover
-     * @param receiver Recipient of the recovered assets
-     */
-    function recover(uint256 amount, address receiver) public virtual onlyOwner {
-        uint256 excessBalance = address(this).balance > totalAssets ? address(this).balance - totalAssets : 0;
-        require(amount <= excessBalance, "AmountExceedsExcess");
-        SafeTransferLib.safeTransferETH(receiver, amount);
-        emit Recover(receiver, amount);
-    }
-
-    /**
      * @notice Deposits asset to supply liquidity, minting pool tokens
      * @param receiver Address to receive pool tokens
      */
@@ -1378,5 +1366,29 @@ contract NativeLending is BaseLending {
         emit CollectStabilityFees(receiver, amountToCollect);
     }
 
+    /**
+     * @notice Returns the amount of native tokens available for recovery
+     * @return The excess balance that can be recovered
+     */
+    function getRecoverableAmount() public view returns (uint256) {
+        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 requiredBalance = totalAssets > totalDebtValue ? totalAssets - totalDebtValue : 0;
+        uint256 reservedBalance = requiredBalance + stabilityFees;
+        return address(this).balance > reservedBalance ? address(this).balance - reservedBalance : 0;
+    }
+
+    /**
+     * @notice Recovers excess assets not tracked in totalAssets or reserved for protocol fees
+     * @param amount Amount to recover
+     * @param receiver Recipient of the recovered assets
+     */
+    function recover(uint256 amount, address receiver) public virtual onlyOwner {
+        _updateInterest(); // Ensure interest and fees are up-to-date
+        uint256 excessBalance = getRecoverableAmount(); // Use view function to check excess
+        require(amount <= excessBalance, "AmountExceedsExcess");
+        require(receiver != address(0), "InvalidReceiver");
+        SafeTransferLib.safeTransferETH(receiver, amount);
+        emit Recover(receiver, amount);
+    }
 
 }
