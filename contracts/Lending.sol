@@ -1167,7 +1167,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             uint256 borrowingRate = getBorrowingRate();
             uint256 scaledRate = (borrowingRate * SCALE_FACTOR) / BPS_DENOMINATOR;
             uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / SCALE_FACTOR;
-            uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed) / (SCALE_FACTOR * SECONDS_PER_YEAR);
+            uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed * SCALE_FACTOR) / (SCALE_FACTOR * SECONDS_PER_YEAR) / SCALE_FACTOR;
             uint256 interestFactor = (borrowingInterest * SCALE_FACTOR) / totalDebtValue;
             debtPricePerShare = debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
             uint256 stabilityFeeRate = _getStabilityFeeRate();
@@ -1362,11 +1362,6 @@ contract NativeLending is BaseLending {
     constructor(IERC4626 _collateralToken) BaseLending(_collateralToken) {
         LENDING_TYPE = "native";
     }
-
-    /**
-     * @notice Receives native tokens (e.g., ETH) for deposits
-     */
-    receive() external payable {}
 
     /**
      * @notice Calculates the maximum assets a user can withdraw
