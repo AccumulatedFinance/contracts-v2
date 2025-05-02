@@ -1384,6 +1384,7 @@ contract NativeLending is BaseLending {
      */
     function recover(uint256 amount, address receiver) public virtual onlyOwner {
         _updateInterest(); // Ensure interest and fees are up-to-date
+        require(amount > 0, "ZeroAmount");
         uint256 excessBalance = getRecoverableAmount(); // Use view function to check excess
         require(amount <= excessBalance, "AmountExceedsExcess");
         SafeTransferLib.safeTransferETH(receiver, amount);
@@ -1404,8 +1405,6 @@ contract ERC20Lending is BaseLending {
         LENDING_TYPE = "erc20";
         asset = IERC20(_assetToken);
     }
-
-    receive() external payable {}
 
     function getUserMaxWithdraw(address user) public view returns (uint256) {
         uint256 userBalance = balanceOf(user);
@@ -1509,7 +1508,7 @@ contract ERC20Lending is BaseLending {
         require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
         uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
         require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
-        require(amount >= debtToCover, "InsufficientMsgValue");
+        require(amount >= debtToCover, "InsufficientAmount");
         if (amount > debtToCover) {
             uint256 refund = amount - debtToCover;
             asset.safeTransfer(msg.sender, refund);
@@ -1550,6 +1549,7 @@ contract ERC20Lending is BaseLending {
      */
     function recover(uint256 amount, address receiver) public virtual onlyOwner {
         _updateInterest(); // Ensure interest and fees are up-to-date
+        require(amount > 0, "ZeroAmount");
         uint256 excessBalance = getRecoverableAmount(); // Use view function to check excess
         require(amount <= excessBalance, "AmountExceedsExcess");
         asset.safeTransfer(receiver, amount);
