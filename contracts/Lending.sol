@@ -1256,8 +1256,8 @@ contract NativeLending is BaseLending {
      * @param receiver Address to receive pool tokens
      */
     function deposit(address receiver) public payable virtual nonReentrant {
-        require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
         _updateInterest();
+        require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
         uint256 baseTokens = (msg.value * SCALE_FACTOR) / getPricePerShare();
         totalAssets += msg.value;
         _mint(receiver, baseTokens);
@@ -1270,10 +1270,10 @@ contract NativeLending is BaseLending {
      * @param receiver Recipient of the assets
      */
     function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
+        _updateInterest();
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
-        require(totalAssets > 0, "NoDeposits");
-        _updateInterest();
+        require(totalAssets >= amount, "InsufficientPoolAssets");
         uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
         require(baseTokens <= baseBalances[msg.sender], "InsufficientBaseBalance");
         require(address(this).balance >= amount, "InsufficientContractBalance");
@@ -1386,8 +1386,173 @@ contract NativeLending is BaseLending {
         _updateInterest(); // Ensure interest and fees are up-to-date
         uint256 excessBalance = getRecoverableAmount(); // Use view function to check excess
         require(amount <= excessBalance, "AmountExceedsExcess");
-        require(receiver != address(0), "InvalidReceiver");
         SafeTransferLib.safeTransferETH(receiver, amount);
+        emit Recover(receiver, amount);
+    }
+
+}
+
+// ERC20Lending contract accepts ERC20 as a borrowable asset for lending
+contract ERC20Lending is BaseLending {
+
+    using SafeTransferLib for IERC4626;
+    using SafeTransferLib for IERC20;
+
+    IERC20 public immutable asset; // ERC20 asset token
+
+    constructor(IERC20 _assetToken, IERC4626 _collateralToken) BaseLending(_collateralToken) {
+        LENDING_TYPE = "erc20";
+        asset = IERC20(_assetToken);
+    }
+
+    receive() external payable {}
+
+    function getUserMaxWithdraw(address user) public view returns (uint256) {
+        uint256 userBalance = balanceOf(user);
+        uint256 maxAvailable = asset.balanceOf(address(this));
+        return userBalance < maxAvailable ? userBalance : maxAvailable;
+    }
+
+    /**
+     * @notice Deposits asset to supply liquidity, minting pool tokens
+     * @param amount Deposit amount
+     * @param receiver Address to receive pool tokens
+     */
+    function deposit(uint256 amount, address receiver) public virtual nonReentrant {
+        _updateInterest();
+        require(totalAssets + amount <= assetsCap, "ExceedsAssetsCap");
+        asset.safeTransferFrom(address(msg.sender), address(this), amount);
+        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        totalAssets += amount;
+        _mint(receiver, baseTokens);
+        emit Deposit(msg.sender, receiver, amount, baseTokens);
+    }
+
+    /**
+     * @notice Withdraws assets, burning pool tokens
+     * @param amount Amount of assets to withdraw
+     * @param receiver Recipient of the assets
+     */
+    function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
+        _updateInterest();
+        require(amount > 0, "ZeroAmount");
+        require(amount <= balanceOf(msg.sender), "InsufficientBalance");
+        require(totalAssets >= amount, "InsufficientPoolAssets");
+        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        require(baseTokens <= baseBalances[msg.sender], "InsufficientBaseBalance");
+        require(asset.balanceOf(address(this)) >= amount, "InsufficientContractBalance");
+        totalAssets -= amount;
+        _burn(msg.sender, baseTokens);
+        asset.safeTransfer(receiver, amount);
+        emit Withdraw(msg.sender, receiver, amount, baseTokens);
+    }
+
+    /**
+     * @notice Borrows asset against collateral
+     * @param amount Amount of asset to borrow
+     */
+    function borrow(uint256 amount) public virtual nonReentrant {
+        _updateInterest();
+        require(amount > 0, "ZeroAmount");
+        require(asset.balanceOf(address(this)) >= amount, "InsufficientBalance");
+        require(amount <= getUserMaxBorrow(msg.sender), "InsufficientCollateral");
+        uint256 newDebtShares = (amount * SCALE_FACTOR) / debtPricePerShare;
+        userDebtShares[msg.sender] += newDebtShares;
+        totalDebtShares += newDebtShares;
+        asset.safeTransfer(msg.sender, amount);
+        emit Borrow(msg.sender, amount);
+    }
+
+    /**
+     * @notice Repays debt with asset
+     */
+    function repay(uint256 amount) public virtual nonReentrant {
+        _updateInterest();
+        require(amount > 0, "ZeroAmount");
+        asset.safeTransferFrom(address(msg.sender), address(this), amount);
+        uint256 shares = userDebtShares[msg.sender];
+        require(shares > 0, "NoDebt");
+        uint256 dpps = debtPricePerShare;
+        uint256 totalDebtValue = (shares * dpps) / SCALE_FACTOR;
+        uint256 repayment = amount > totalDebtValue ? totalDebtValue : amount;
+        if (repayment == totalDebtValue) {
+            totalDebtShares -= shares;
+            userDebtShares[msg.sender] = 0;
+        } else {
+            uint256 sharesRepaid = (repayment * SCALE_FACTOR) / dpps;
+            totalDebtShares -= sharesRepaid;
+            userDebtShares[msg.sender] -= sharesRepaid;
+        }
+        if (amount > totalDebtValue) {
+            asset.safeTransfer(msg.sender, amount - totalDebtValue);
+        }
+        emit Repay(msg.sender, repayment);
+    }
+
+        /**
+     * @notice Liquidates a user's position
+     * @param user User to liquidate
+     * @param debtSharesToCover Debt shares to cover
+     */
+    function liquidate(address user, uint256 debtSharesToCover, uint256 amount) public virtual onlyLiquidator nonReentrant {
+        _updateInterest();
+        require(isLiquidatable(user), "PositionNotLiquidatable");
+        require(debtSharesToCover > 0 && debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
+        asset.safeTransferFrom(address(msg.sender), address(this), amount);
+        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 collateralPricePerShare = collateral.pricePerShare();
+        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
+        uint256 bonusAmount = (debtToCover * liquidationBonus) / BPS_DENOMINATOR;
+        uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
+        bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
+        uint256 totalValueToSeize = debtToCover + bonusAmount;
+        require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
+        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
+        require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
+        require(amount >= debtToCover, "InsufficientMsgValue");
+        if (amount > debtToCover) {
+            uint256 refund = amount - debtToCover;
+            asset.safeTransfer(msg.sender, refund);
+        }
+        userDebtShares[user] -= debtSharesToCover;
+        totalDebtShares -= debtSharesToCover;
+        userCollateral[user] -= collateralSharesToSeize;
+        totalCollateral -= collateralSharesToSeize;
+        collateral.safeTransfer(msg.sender, collateralSharesToSeize);
+        emit Liquidation(user, msg.sender, debtToCover, collateralSharesToSeize);
+    }
+
+    function collectStabilityFees(address receiver) public onlyOwner {
+        _updateInterest(); // Ensure fees are up-to-date before collecting
+        require(stabilityFees > 0, "NoFeesToCollect");
+        uint256 contractBalance = asset.balanceOf(address(this));
+        uint256 amountToCollect = stabilityFees > contractBalance ? contractBalance : stabilityFees;
+        stabilityFees -= amountToCollect;
+        asset.safeTransfer(receiver, amountToCollect);
+        emit CollectStabilityFees(receiver, amountToCollect);
+    }
+
+    /**
+     * @notice Returns the amount of native tokens available for recovery
+     * @return The excess balance that can be recovered
+     */
+    function getRecoverableAmount() public view returns (uint256) {
+        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 requiredBalance = totalAssets > totalDebtValue ? totalAssets - totalDebtValue : 0;
+        uint256 reservedBalance = requiredBalance + stabilityFees;
+        return asset.balanceOf(address(this)) > reservedBalance ? asset.balanceOf(address(this)) - reservedBalance : 0;
+    }
+
+    /**
+     * @notice Recovers excess assets not tracked in totalAssets or reserved for protocol fees
+     * @param amount Amount to recover
+     * @param receiver Recipient of the recovered assets
+     */
+    function recover(uint256 amount, address receiver) public virtual onlyOwner {
+        _updateInterest(); // Ensure interest and fees are up-to-date
+        uint256 excessBalance = getRecoverableAmount(); // Use view function to check excess
+        require(amount <= excessBalance, "AmountExceedsExcess");
+        asset.safeTransfer(receiver, amount);
         emit Recover(receiver, amount);
     }
 
