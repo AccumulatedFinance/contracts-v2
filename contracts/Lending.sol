@@ -908,7 +908,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             uint256 fee = (grossInterest * stabilityFeeRate) / BPS_DENOMINATOR;
             totalValue += grossInterest - fee;
         }
-        return (totalValue * SCALE_FACTOR) / baseTotalSupply;
+        return (totalValue * (10 ** (18 - decimals()))) / baseTotalSupply;
     }
 
     /**
@@ -922,7 +922,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (timeElapsed == 0 || totalDebtValue == 0) return debtPricePerShare;
         uint256 rate = getBorrowingRate();
         uint256 scaledRate = (rate * SCALE_FACTOR) / BPS_DENOMINATOR;
-        uint256 interest = (totalDebtValue * scaledRate * timeElapsed * SCALE_FACTOR) / (SCALE_FACTOR * SECONDS_PER_YEAR) / SCALE_FACTOR;
+        uint256 decimalAdjustment = 10 ** (18 - decimals());
+        uint256 interest = (totalDebtValue * scaledRate * timeElapsed * decimalAdjustment) / (decimalAdjustment * SECONDS_PER_YEAR);
         uint256 interestFactor = (interest * SCALE_FACTOR) / totalDebtValue;
         return debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
     }
@@ -1028,11 +1029,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     /**
      * @notice Calculates the value of a given number of collateral shares
-     * @param shares Number of collateral shares
+     * @param shares Number of collateral shares in collateral decimals
      * @return Collateral value in 18-decimal fixed-point
      */
     function _getCollateralValueFromShares(uint256 shares) internal view returns (uint256) {
-        return (shares * collateral.pricePerShare()) / SCALE_FACTOR;
+        return (shares * collateral.pricePerShare()) / (10 ** decimals());
     }
 
     /**
@@ -1160,14 +1161,16 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     /**
      * @notice Updates interest and protocol fees
+     * @dev Normalizes totalDebtValue to 18 decimals for interest calculation using pool token decimals
      */
-    function _updateInterest() internal {
+    function _updateInterest() internal virtual {
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
         if (timeElapsed > 0 && totalDebtShares > 0) {
             uint256 borrowingRate = getBorrowingRate();
             uint256 scaledRate = (borrowingRate * SCALE_FACTOR) / BPS_DENOMINATOR;
             uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / SCALE_FACTOR;
-            uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed * SCALE_FACTOR) / (SCALE_FACTOR * SECONDS_PER_YEAR) / SCALE_FACTOR;
+            uint256 decimalAdjustment = 10 ** (18 - decimals());
+            uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed * decimalAdjustment) / (decimalAdjustment * SECONDS_PER_YEAR);
             uint256 interestFactor = (borrowingInterest * SCALE_FACTOR) / totalDebtValue;
             debtPricePerShare = debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
             uint256 stabilityFeeRate = _getStabilityFeeRate();
@@ -1246,7 +1249,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     /**
      * @notice Calculates the maximum collateral a user can withdraw
      * @param user Address of the user
-     * @return Maximum withdrawable collateral shares in 18-decimal fixed-point
+     * @return Maximum withdrawable collateral shares in collateral decimals
      */
     function getUserMaxWithdrawCollateral(address user) public view returns (uint256) {
         uint256 borrowed = getUserDebtValue(user);
@@ -1257,7 +1260,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 excessValue = maxDebt - borrowed;
         uint256 pricePerShare = collateral.pricePerShare();
         require(pricePerShare > 0, "InvalidPrice");
-        uint256 excessShares = (excessValue * SCALE_FACTOR) / pricePerShare;
+        uint256 excessShares = (excessValue * (10 ** decimals())) / pricePerShare;
         return excessShares > collateralShares ? collateralShares : excessShares;
     }
 
@@ -1381,7 +1384,7 @@ contract NativeLending is BaseLending {
     function deposit(address receiver) public payable virtual nonReentrant {
         _updateInterest();
         require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
-        uint256 baseTokens = (msg.value * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (msg.value * (10 ** (18 - decimals()))) / getPricePerShare();
         totalAssets += msg.value;
         _mint(receiver, baseTokens);
         emit Deposit(msg.sender, receiver, msg.value, baseTokens);
@@ -1389,7 +1392,7 @@ contract NativeLending is BaseLending {
 
     /**
      * @notice Withdraws assets, burning pool tokens
-     * @param amount Amount of assets to withdraw
+     * @param amount Amount of assets to withdraw in asset decimals
      * @param receiver Recipient of the assets
      */
     function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
@@ -1397,7 +1400,7 @@ contract NativeLending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets >= amount, "InsufficientPoolAssets");
-        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
         require(address(this).balance >= amount, "InsufficientContractBalance");
         totalAssets -= amount;
         _burn(msg.sender, baseTokens);
@@ -1458,13 +1461,13 @@ contract NativeLending is BaseLending {
         uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
         uint256 collateralPricePerShare = collateral.pricePerShare();
         require(collateralPricePerShare > 0, "InvalidPrice");
-        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
+        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / (10 ** decimals());
         uint256 bonusAmount = (debtToCover * liquidationBonus) / BPS_DENOMINATOR;
         uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
         bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
         uint256 totalValueToSeize = debtToCover + bonusAmount;
         require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
-        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
+        uint256 collateralSharesToSeize = (totalValueToSeize * (10 ** decimals())) / collateralPricePerShare;
         require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
         require(msg.value >= debtToCover, "InsufficientAmount");
         if (msg.value > debtToCover) {
@@ -1491,31 +1494,6 @@ contract NativeLending is BaseLending {
         stabilityFees -= amountToCollect;
         SafeTransferLib.safeTransferETH(receiver, amountToCollect);
         emit CollectStabilityFees(receiver, amountToCollect);
-    }
-
-    /**
-     * @notice Returns the amount of native tokens available for recovery
-     * @return The excess balance that can be recovered
-     */
-    function getRecoverableAmount() public view returns (uint256) {
-        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / SCALE_FACTOR;
-        uint256 requiredBalance = totalAssets > totalDebtValue ? totalAssets - totalDebtValue : 0;
-        uint256 reservedBalance = requiredBalance + stabilityFees;
-        return address(this).balance > reservedBalance ? address(this).balance - reservedBalance : 0;
-    }
-
-    /**
-     * @notice Recovers excess assets not tracked in totalAssets or reserved for protocol fees
-     * @param amount Amount to recover
-     * @param receiver Recipient of the recovered assets
-     */
-    function recover(uint256 amount, address receiver) public virtual onlyOwner {
-        _updateInterest();
-        require(amount > 0, "ZeroAmount");
-        uint256 excessBalance = getRecoverableAmount();
-        require(amount <= excessBalance, "AmountExceedsExcess");
-        SafeTransferLib.safeTransferETH(receiver, amount);
-        emit Recover(receiver, amount);
     }
 }
 
@@ -1553,14 +1531,14 @@ contract ERC20Lending is BaseLending {
 
     /**
      * @notice Deposits asset to supply liquidity, minting pool tokens
-     * @param amount Deposit amount
+     * @param amount Deposit amount in asset decimals
      * @param receiver Address to receive pool tokens
      */
     function deposit(uint256 amount, address receiver) public virtual nonReentrant {
         _updateInterest();
         require(totalAssets + amount <= assetsCap, "ExceedsAssetsCap");
         asset.safeTransferFrom(address(msg.sender), address(this), amount);
-        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
         totalAssets += amount;
         _mint(receiver, baseTokens);
         emit Deposit(msg.sender, receiver, amount, baseTokens);
@@ -1568,7 +1546,7 @@ contract ERC20Lending is BaseLending {
 
     /**
      * @notice Withdraws assets, burning pool tokens
-     * @param amount Amount of assets to withdraw
+     * @param amount Amount of assets to withdraw in asset decimals
      * @param receiver Recipient of the assets
      */
     function withdraw(uint256 amount, address receiver) public virtual nonReentrant {
@@ -1576,7 +1554,7 @@ contract ERC20Lending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets >= amount, "InsufficientPoolAssets");
-        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
         require(asset.balanceOf(address(this)) >= amount, "InsufficientContractBalance");
         totalAssets -= amount;
         _burn(msg.sender, baseTokens);
@@ -1631,7 +1609,7 @@ contract ERC20Lending is BaseLending {
      * @notice Liquidates a user's position
      * @param user User to liquidate
      * @param debtSharesToCover Debt shares to cover
-     * @param amount Amount of assets to cover the debt
+     * @param amount Amount of assets to cover the debt in asset decimals
      */
     function liquidate(address user, uint256 debtSharesToCover, uint256 amount) public virtual onlyLiquidator nonReentrant {
         _updateInterest();
@@ -1641,13 +1619,13 @@ contract ERC20Lending is BaseLending {
         uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
         uint256 collateralPricePerShare = collateral.pricePerShare();
         require(collateralPricePerShare > 0, "InvalidPrice");
-        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
+        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / (10 ** decimals());
         uint256 bonusAmount = (debtToCover * liquidationBonus) / BPS_DENOMINATOR;
         uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
         bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
         uint256 totalValueToSeize = debtToCover + bonusAmount;
         require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
-        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
+        uint256 collateralSharesToSeize = (totalValueToSeize * (10 ** decimals())) / collateralPricePerShare;
         require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
         require(amount >= debtToCover, "InsufficientAmount");
         if (amount > debtToCover) {
