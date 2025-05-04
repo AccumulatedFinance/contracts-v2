@@ -1497,6 +1497,31 @@ contract NativeLending is BaseLending {
         SafeTransferLib.safeTransferETH(receiver, amountToCollect);
         emit CollectStabilityFees(receiver, amountToCollect);
     }
+
+    /**
+     * @notice Returns the amount of tokens available for recovery
+     * @return The excess balance that can be recovered
+     */
+    function getRecoverableAmount() public view returns (uint256) {
+        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 requiredBalance = totalAssets > totalDebtValue ? totalAssets - totalDebtValue : 0;
+        uint256 reservedBalance = requiredBalance + stabilityFees;
+        return address(this).balance > reservedBalance ? address(this).balance - reservedBalance : 0;
+    }
+
+    /**
+     * @notice Recovers excess assets not tracked in totalAssets or reserved for protocol fees
+     * @param amount Amount to recover
+     * @param receiver Recipient of the recovered assets
+     */
+    function recover(uint256 amount, address receiver) public virtual onlyOwner {
+        _updateInterest();
+        require(amount > 0, "ZeroAmount");
+        uint256 excessBalance = getRecoverableAmount();
+        require(amount <= excessBalance, "AmountExceedsExcess");
+        SafeTransferLib.safeTransferETH(receiver, amount);
+        emit Recover(receiver, amount);
+    }
 }
 
 /**
