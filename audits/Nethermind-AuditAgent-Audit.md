@@ -4,11 +4,11 @@
 Audit by Nethermind AuditAgent  
 [https://app.auditagent.nethermind.io/](https://app.auditagent.nethermind.io/)
 
-**Organization**: `AccumulatedFinance`
-**Repository**: `contracts-v2`
-**Branch**: `master`
-**Scanned Commit**: `80de6a9`
-**Contract Files**: `contracts/Lending.sol`
+**Organization**: `AccumulatedFinance` 
+**Repository**: `contracts-v2` 
+**Branch**: `master` 
+**Scanned Commit**: `80de6a9` 
+**Contract Files**: `contracts/Lending.sol` 
 
 ### Code Summary
 The protocol implements a flexible lending platform that allows users to borrow assets against ERC4626 collateral tokens. It consists of two main contract implementations: `NativeLending` for borrowing native tokens (like ETH) and `ERC20Lending` for borrowing ERC20 tokens. Both inherit from the abstract `BaseLending` contract which provides the core lending functionality.
