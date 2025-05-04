@@ -1383,8 +1383,10 @@ contract NativeLending is BaseLending {
      */
     function deposit(address receiver) public payable virtual nonReentrant {
         _updateInterest();
+        require(msg.value > 0, "ZeroAmount");
         require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
         uint256 baseTokens = (msg.value * (10 ** (18 - decimals()))) / getPricePerShare();
+        require(baseTokens > 0, "InsufficientShares");
         totalAssets += msg.value;
         _mint(receiver, baseTokens);
         emit Deposit(msg.sender, receiver, msg.value, baseTokens);
@@ -1536,9 +1538,11 @@ contract ERC20Lending is BaseLending {
      */
     function deposit(uint256 amount, address receiver) public virtual nonReentrant {
         _updateInterest();
+        require(amount > 0, "ZeroAmount");
         require(totalAssets + amount <= assetsCap, "ExceedsAssetsCap");
-        asset.safeTransferFrom(address(msg.sender), address(this), amount);
         uint256 baseTokens = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
+        require(baseTokens > 0, "InsufficientShares");
+        asset.safeTransferFrom(address(msg.sender), address(this), amount);
         totalAssets += amount;
         _mint(receiver, baseTokens);
         emit Deposit(msg.sender, receiver, amount, baseTokens);
