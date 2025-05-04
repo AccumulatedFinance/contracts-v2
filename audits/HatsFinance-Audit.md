@@ -67,23 +67,23 @@ https://testnet.accumulated.finance/stake/rosebeta
 
  ## Medium severity issues
 
-- **Potential NFT Manipulation in requestWithdrawal Function due to _safeMint Usage**
+- `Fixed` **Potential NFT Manipulation in requestWithdrawal Function due to _safeMint Usage**
 The requestWithdrawal() function in the Mintersol contract allows users to request token withdrawals by transferring staking tokens to the contract. A new NFT, with an incremented withdrawal ID, is minted to the user via _safeMint(). This poses a security risk similar to a past incident where _safeMint() was exploited. The vulnerability occurs if the receiving smart contract deliberately rejects NFT reception, causing a transaction revert, and the attacker selectively mints desirable NFTs. The recommended solution is to replace _safeMint() with _mint() to eliminate the possibility of exploitation. Moreover, while the NFTs only serve as identifiers for deposit operations and lack uniqueness, the costs associated with attack attempts are significantly high due to the gas fees.
 Link: [Issue #27](https://github.com/hats-finance/OLD-Accumulated-finance-0x75278bcc0fa7c9e3af98654bce195eaf3bb6a784/issues/27)
 
 
 ## Low severity issues
 
-- **Native Token ClaimWithdrawal Function Lacks Claimed Status Check in Minter.sol**
+- `Fixed` **Native Token ClaimWithdrawal Function Lacks Claimed Status Check in Minter.sol**
 In the minter.sol contract, the claimWithdrawal function for native tokens lacks a crucial check to ensure a withdrawal hasn't already been claimed, unlike its ERC20 counterpart. Although marking a withdrawal as claimed without this check doesn't immediately cause loss of funds, it results in inconsistent behavior. A code fix to include this verification step is recommended.
 Link: [Issue #19](https://github.com/hats-finance/OLD-Accumulated-finance-0x75278bcc0fa7c9e3af98654bce195eaf3bb6a784/issues/19)
 
-- **Reentrancy issue in collectWithdrawalFees due to CEI pattern violation**
+- `Fixed`**Reentrancy issue in collectWithdrawalFees due to CEI pattern violation**
 In Minter.sol, the collectWithdrawalFees() function allows owners to withdraw fees but may be vulnerable to reentrancy attacks. This is due to a violation of the Checks-Effects-Interactions (CEI) pattern, where external calls should occur last. It’s recommended to update the pattern or add a nonReentrant modifier to secure the function.
 Link: [Issue #26](https://github.com/hats-finance/OLD-Accumulated-finance-0x75278bcc0fa7c9e3af98654bce195eaf3bb6a784/issues/26)
 
 
-- **AccumulatedFi contracts vulnerability with Solmate's SafeTransferLib affecting fund transfers**
+- `Fixed` **AccumulatedFi contracts vulnerability with Solmate's SafeTransferLib affecting fund transfers**
 
   AccumulatedFi contracts use the `SafeTransferLib` from Solmate, which does not check for the existence of a token contract. This can result in false successes for fund transfers, leading to potential fund loss. It is recommended to use OpenZeppelin's SafeERC20 for proper code existence checks to avoid such risks.
 
@@ -91,7 +91,7 @@ Link: [Issue #26](https://github.com/hats-finance/OLD-Accumulated-finance-0x7527
   **Link**: [Issue #51](https://github.com/hats-finance/Accumulated-finance-0x75278bcc0fa7c9e3af98654bce195eaf3bb6a784/issues/51)
 
 
-- **collectWithdrawalFees emits zero due to resetting totalWithdrawalFees before event**
+- `Fixed` **collectWithdrawalFees emits zero due to resetting totalWithdrawalFees before event**
 
   The `collectWithdrawalFees` function emits an event showing 0 fees collected because `totalWithdrawalFees` is reset to 0 before the event is emitted. This results in incorrect event data, rendering it unusable for frontend or indexing. It is recommended to save `totalWithdrawalFees` in a local variable before resetting and use this variable in the event.
 
@@ -99,7 +99,7 @@ Link: [Issue #26](https://github.com/hats-finance/OLD-Accumulated-finance-0x7527
   **Link**: [Issue #20](https://github.com/hats-finance/Accumulated-finance-0x75278bcc0fa7c9e3af98654bce195eaf3bb6a784/issues/20)
 
 
-- **Add Minimum Deposit Limit to Prevent Spam in Minter Contract**
+- `Fixed` **Add Minimum Deposit Limit to Prevent Spam in Minter Contract**
 
   The `deposit()` function in the `Minter.sol` contract lacks a check for a minimum deposit amount, potentially permitting spamming with very small token deposits. This could disrupt legitimate users trying to deposit ROSE tokens. Implementing a minimum deposit limit is recommended, aligning with existing minimum withdrawal checks to prevent abuse.
 
@@ -107,7 +107,7 @@ Link: [Issue #26](https://github.com/hats-finance/OLD-Accumulated-finance-0x7527
   **Link**: [Issue #10](https://github.com/hats-finance/Accumulated-finance-0x75278bcc0fa7c9e3af98654bce195eaf3bb6a784/issues/10)
 
 
-- **Minimum Delegation Amount for ROSE Tokens Not Enforced in stROSEMinter.sol**
+- `Fixed` **Minimum Delegation Amount for ROSE Tokens Not Enforced in stROSEMinter.sol**
 
   The `delegate()` function in `stROSEMinter.sol` does not enforce a minimum delegation amount as required by OASIS, which is 100 ROSE tokens. This oversight allows users to delegate any amount, which could result in failed transactions if the required minimum is not met. It is recommended to add a validation to ensure delegations meet the 100 ROSE minimum.
 
