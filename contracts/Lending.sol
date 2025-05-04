@@ -934,7 +934,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Balance of pool tokens in 18-decimal fixed-point
      */
     function balanceOf(address account) public view virtual override returns (uint256) {
-        return (baseBalances[account] * getPricePerShare()) / SCALE_FACTOR;
+        return (baseBalances[account] * getPricePerShare()) / (10 ** (18 - decimals()));
     }
 
     /**
@@ -942,7 +942,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Total supply of pool tokens in 18-decimal fixed-point
      */
     function totalSupply() public view virtual override returns (uint256) {
-        return (baseTotalSupply * getPricePerShare()) / SCALE_FACTOR;
+        return (baseTotalSupply * getPricePerShare()) / (10 ** (18 - decimals()));
     }
 
     /**
