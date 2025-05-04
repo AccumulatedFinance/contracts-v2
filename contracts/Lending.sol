@@ -1007,7 +1007,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             baseBalances[account] -= amount;
         }
         emit Transfer(account, address(0), (amount * getPricePerShare()) / SCALE_FACTOR);
-        _afterTokenTransfer(address(0), account, amount);
+        _afterTokenTransfer(account, address(0), amount);
     }
 
     /**
