@@ -859,6 +859,14 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     }
 
     /**
+     * @notice Returns the decimal adjustment factor for rebasing token calculations
+     * @return 10^(18 - decimals())
+     */
+    function _getDecimalAdjustment() internal view returns (uint256) {
+        return 10 ** (18 - decimals());
+    }
+
+    /**
      * @notice Computes scaled LTV for consistent calculations
      * @return Scaled LTV (ltv * SCALE_FACTOR / BPS_DENOMINATOR)
      */
@@ -908,7 +916,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             uint256 fee = (grossInterest * stabilityFeeRate) / BPS_DENOMINATOR;
             totalValue += grossInterest - fee;
         }
-        return (totalValue * (10 ** (18 - decimals()))) / baseTotalSupply;
+        return (totalValue * _getDecimalAdjustment()) / baseTotalSupply;
     }
 
     /**
@@ -922,7 +930,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         if (timeElapsed == 0 || totalDebtValue == 0) return debtPricePerShare;
         uint256 rate = getBorrowingRate();
         uint256 scaledRate = (rate * SCALE_FACTOR) / BPS_DENOMINATOR;
-        uint256 decimalAdjustment = 10 ** (18 - decimals());
+        uint256 decimalAdjustment = _getDecimalAdjustment();
         uint256 interest = (totalDebtValue * scaledRate * timeElapsed * decimalAdjustment) / (decimalAdjustment * SECONDS_PER_YEAR);
         uint256 interestFactor = (interest * SCALE_FACTOR) / totalDebtValue;
         return debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
@@ -934,7 +942,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Balance of pool tokens in 18-decimal fixed-point
      */
     function balanceOf(address account) public view virtual override returns (uint256) {
-        return (baseBalances[account] * getPricePerShare()) / (10 ** (18 - decimals()));
+        return (baseBalances[account] * getPricePerShare()) / _getDecimalAdjustment();
     }
 
     /**
@@ -942,7 +950,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Total supply of pool tokens in 18-decimal fixed-point
      */
     function totalSupply() public view virtual override returns (uint256) {
-        return (baseTotalSupply * getPricePerShare()) / (10 ** (18 - decimals()));
+        return (baseTotalSupply * getPricePerShare()) / _getDecimalAdjustment();
     }
 
     /**
@@ -952,7 +960,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return True if the transfer succeeds
      */
     function transfer(address recipient, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
+        uint256 baseAmount = (amount * _getDecimalAdjustment()) / getPricePerShare();
         require(baseAmount <= baseBalances[msg.sender], "InsufficientBalance");
         baseBalances[msg.sender] -= baseAmount;
         baseBalances[recipient] += baseAmount;
@@ -968,7 +976,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return True if the transfer succeeds
      */
     function transferFrom(address sender, address receiver, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
+        uint256 baseAmount = (amount * _getDecimalAdjustment()) / getPricePerShare();
         require(baseAmount <= baseBalances[sender], "InsufficientBalance");
         uint256 currentAllowance = allowance(sender, msg.sender);
         require(currentAllowance >= amount, "InsufficientAllowance");
@@ -989,7 +997,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _beforeTokenTransfer(address(0), account, amount);
         baseTotalSupply += amount;
         baseBalances[account] += amount;
-        emit Transfer(address(0), account, (amount * getPricePerShare()) / (10 ** (18 - decimals())));
+        emit Transfer(address(0), account, (amount * getPricePerShare()) / _getDecimalAdjustment());
         _afterTokenTransfer(address(0), account, amount);
     }
 
@@ -1006,7 +1014,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             baseTotalSupply -= amount;
             baseBalances[account] -= amount;
         }
-        emit Transfer(account, address(0), (amount * getPricePerShare()) / (10 ** (18 - decimals())));
+        emit Transfer(account, address(0), (amount * getPricePerShare()) / _getDecimalAdjustment());
         _afterTokenTransfer(account, address(0), amount);
     }
 
@@ -1169,7 +1177,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             uint256 borrowingRate = getBorrowingRate();
             uint256 scaledRate = (borrowingRate * SCALE_FACTOR) / BPS_DENOMINATOR;
             uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / SCALE_FACTOR;
-            uint256 decimalAdjustment = 10 ** (18 - decimals());
+            uint256 decimalAdjustment = _getDecimalAdjustment();
             uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed * decimalAdjustment) / (decimalAdjustment * SECONDS_PER_YEAR);
             uint256 interestFactor = (borrowingInterest * SCALE_FACTOR) / totalDebtValue;
             debtPricePerShare = debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
@@ -1385,7 +1393,7 @@ contract NativeLending is BaseLending {
         _updateInterest();
         require(msg.value > 0, "ZeroAmount");
         require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
-        uint256 baseTokens = (msg.value * (10 ** (18 - decimals()))) / getPricePerShare();
+        uint256 baseTokens = (msg.value * _getDecimalAdjustment()) / getPricePerShare();
         require(baseTokens > 0, "InsufficientShares");
         totalAssets += msg.value;
         _mint(receiver, baseTokens);
@@ -1402,7 +1410,7 @@ contract NativeLending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets >= amount, "InsufficientPoolAssets");
-        uint256 baseTokens = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
+        uint256 baseTokens = (amount * _getDecimalAdjustment()) / getPricePerShare();
         require(address(this).balance >= amount, "InsufficientContractBalance");
         totalAssets -= amount;
         _burn(msg.sender, baseTokens);
@@ -1565,7 +1573,7 @@ contract ERC20Lending is BaseLending {
         _updateInterest();
         require(amount > 0, "ZeroAmount");
         require(totalAssets + amount <= assetsCap, "ExceedsAssetsCap");
-        uint256 baseTokens = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
+        uint256 baseTokens = (amount * _getDecimalAdjustment()) / getPricePerShare();
         require(baseTokens > 0, "InsufficientShares");
         asset.safeTransferFrom(address(msg.sender), address(this), amount);
         totalAssets += amount;
@@ -1583,7 +1591,7 @@ contract ERC20Lending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets >= amount, "InsufficientPoolAssets");
-        uint256 baseTokens = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
+        uint256 baseTokens = (amount * _getDecimalAdjustment()) / getPricePerShare();
         require(asset.balanceOf(address(this)) >= amount, "InsufficientContractBalance");
         totalAssets -= amount;
         _burn(msg.sender, baseTokens);
