@@ -952,7 +952,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return True if the transfer succeeds
      */
     function transfer(address recipient, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseAmount = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
         require(baseAmount <= baseBalances[msg.sender], "InsufficientBalance");
         baseBalances[msg.sender] -= baseAmount;
         baseBalances[recipient] += baseAmount;
@@ -968,7 +968,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return True if the transfer succeeds
      */
     function transferFrom(address sender, address receiver, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseAmount = (amount * (10 ** (18 - decimals()))) / getPricePerShare();
         require(baseAmount <= baseBalances[sender], "InsufficientBalance");
         uint256 currentAllowance = allowance(sender, msg.sender);
         require(currentAllowance >= amount, "InsufficientAllowance");
@@ -989,7 +989,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _beforeTokenTransfer(address(0), account, amount);
         baseTotalSupply += amount;
         baseBalances[account] += amount;
-        emit Transfer(address(0), account, (amount * getPricePerShare()) / SCALE_FACTOR);
+        emit Transfer(address(0), account, (amount * getPricePerShare()) / (10 ** (18 - decimals())));
         _afterTokenTransfer(address(0), account, amount);
     }
 
@@ -1006,7 +1006,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             baseTotalSupply -= amount;
             baseBalances[account] -= amount;
         }
-        emit Transfer(account, address(0), (amount * getPricePerShare()) / SCALE_FACTOR);
+        emit Transfer(account, address(0), (amount * getPricePerShare()) / (10 ** (18 - decimals())));
         _afterTokenTransfer(account, address(0), amount);
     }
 
