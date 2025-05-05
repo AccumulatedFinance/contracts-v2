@@ -799,7 +799,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     // Borrowing rate params in bps
     uint256 public minBorrowingRate = 0;
     uint256 public vertexBorrowingRate = 1000;
-    uint256 public maxBorrowingRate = 25000;
+    uint256 public maxBorrowingRate = 10000;
     uint256 public vertexUtilization = 9000;
 
     // Stability fee
