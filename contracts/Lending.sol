@@ -1241,13 +1241,14 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 borrowed = getUserDebtValue(user);
         if (borrowed == 0) return userCollateral[user];
         uint256 collateralShares = userCollateral[user];
-        uint256 maxDebt = getMaxDebtForCollateral(collateralShares);
-        if (borrowed >= maxDebt) return 0;
-        uint256 excessValue = maxDebt - borrowed;
+        if (collateralShares == 0) return 0;
+        uint256 scaledLtv = _getScaledLtv();
+        if (scaledLtv == 0) return 0;
+        uint256 minCollateralValue = (borrowed * PPS_SCALE_FACTOR) / scaledLtv;
         uint256 pricePerShare = collateral.pricePerShare();
         require(pricePerShare > 0, "InvalidPrice");
-        uint256 excessShares = (excessValue * PPS_SCALE_FACTOR) / pricePerShare;
-        return excessShares > collateralShares ? collateralShares : excessShares;
+        uint256 minCollateralShares = (minCollateralValue * PPS_SCALE_FACTOR) / pricePerShare;
+        return minCollateralShares >= collateralShares ? 0 : collateralShares - minCollateralShares;
     }
 
     /**
