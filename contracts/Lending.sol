@@ -786,7 +786,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     mapping(address => uint256) internal userDebtShares; // User's debt shares
 
     uint256 internal debtPricePerShare = 10**18; // Price per debt share, increases with interest
-    uint256 public constant SCALE_FACTOR = 10**18; // Scaling factor for 18 decimals
+    uint256 public scaleFactor; // Scaling factor for pool decimals
+    uint256 public constant PPS_SCALE_FACTOR = 10**18; // Scaling factor for pricePerShare (18 decimals)
     uint256 public constant SECONDS_PER_YEAR = 31_536_000; // Seconds in a year
     uint256 public lastUpdateTimestamp; // Last interest update timestamp
     uint256 public constant BPS_DENOMINATOR = 10000; // Basis points denominator (100% = 10000 bps)
@@ -854,6 +855,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         )
     {
         collateral = _collateralToken;
+        scaleFactor = 10**_collateralToken.decimals();
         lastUpdateTimestamp = block.timestamp;
         liquidator = msg.sender;
     }
@@ -863,7 +865,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Scaled LTV (ltv * SCALE_FACTOR / BPS_DENOMINATOR)
      */
     function _getScaledLtv() internal view returns (uint256) {
-        return (ltv * SCALE_FACTOR) / BPS_DENOMINATOR;
+        return (ltv * PPS_SCALE_FACTOR) / BPS_DENOMINATOR;
     }
 
     /**
@@ -873,8 +875,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      */
     function _getPendingInterest(uint256 shares) private view returns (uint256) {
         if (shares == 0) return 0;
-        uint256 currentDebtValue = (shares * getPricePerShareDebt()) / SCALE_FACTOR;
-        uint256 principal = shares; // Initial debtPricePerShare was 1 * SCALE_FACTOR
+        uint256 currentDebtValue = (shares * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
+        uint256 principal = shares; // Initial debtPricePerShare was 1 * PPS_SCALE_FACTOR
         return currentDebtValue > principal ? currentDebtValue - principal : 0;
     }
 
@@ -900,7 +902,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Price per share in 18-decimal fixed-point
      */
     function getPricePerShare() public view returns (uint256) {
-        if (baseTotalSupply == 0) return SCALE_FACTOR; // 1:1 initially
+        if (baseTotalSupply == 0) return PPS_SCALE_FACTOR; // 1:1 initially
         uint256 grossInterest = getTotalPendingInterest();
         uint256 totalValue = totalAssets;
         if (grossInterest > 0) {
@@ -908,7 +910,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             uint256 fee = (grossInterest * stabilityFeeRate) / BPS_DENOMINATOR;
             totalValue += grossInterest - fee;
         }
-        return (totalValue * SCALE_FACTOR) / baseTotalSupply;
+        return (totalValue * PPS_SCALE_FACTOR) / baseTotalSupply;
     }
 
     /**
@@ -916,30 +918,30 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Price per debt share in 18-decimal fixed-point
      */
     function getPricePerShareDebt() public view returns (uint256) {
-        if (totalDebtShares == 0) return SCALE_FACTOR; // 1:1 initially
+        if (totalDebtShares == 0) return PPS_SCALE_FACTOR; // 1:1 initially
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
         if (timeElapsed == 0) return debtPricePerShare;
         uint256 rate = getBorrowingRate();
-        uint256 scaledRate = (rate * SCALE_FACTOR) / BPS_DENOMINATOR;
+        uint256 scaledRate = (rate * PPS_SCALE_FACTOR) / BPS_DENOMINATOR;
         uint256 interestFactor = (scaledRate * timeElapsed) / SECONDS_PER_YEAR;
-        return debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
+        return debtPricePerShare + (debtPricePerShare * interestFactor) / PPS_SCALE_FACTOR;
     }
 
     /**
      * @notice Returns the balance of pool tokens for an account, adjusted for rebasing
      * @param account Address to query balance for
-     * @return Balance of pool tokens in 18-decimal fixed-point
+     * @return Balance of pool tokens in pool tokens decimals
      */
     function balanceOf(address account) public view virtual override returns (uint256) {
-        return (baseBalances[account] * getPricePerShare()) / SCALE_FACTOR;
+        return (baseBalances[account] * getPricePerShare()) / PPS_SCALE_FACTOR;
     }
 
     /**
      * @notice Returns the total supply of pool tokens, adjusted for rebasing
-     * @return Total supply of pool tokens in 18-decimal fixed-point
+     * @return Total supply of pool tokens in pool tokens decimals
      */
     function totalSupply() public view virtual override returns (uint256) {
-        return (baseTotalSupply * getPricePerShare()) / SCALE_FACTOR;
+        return (baseTotalSupply * getPricePerShare()) / PPS_SCALE_FACTOR;
     }
 
     /**
@@ -949,7 +951,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return True if the transfer succeeds
      */
     function transfer(address recipient, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseAmount = (amount * PPS_SCALE_FACTOR) / getPricePerShare();
         require(baseAmount <= baseBalances[msg.sender], "InsufficientBalance");
         baseBalances[msg.sender] -= baseAmount;
         baseBalances[recipient] += baseAmount;
@@ -965,7 +967,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return True if the transfer succeeds
      */
     function transferFrom(address sender, address receiver, uint256 amount) public virtual override returns (bool) {
-        uint256 baseAmount = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseAmount = (amount * PPS_SCALE_FACTOR) / getPricePerShare();
         require(baseAmount <= baseBalances[sender], "InsufficientBalance");
         uint256 currentAllowance = allowance(sender, msg.sender);
         require(currentAllowance >= amount, "InsufficientAllowance");
@@ -986,7 +988,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _beforeTokenTransfer(address(0), account, amount);
         baseTotalSupply += amount;
         baseBalances[account] += amount;
-        emit Transfer(address(0), account, (amount * getPricePerShare()) / SCALE_FACTOR);
+        emit Transfer(address(0), account, (amount * getPricePerShare()) / PPS_SCALE_FACTOR);
         _afterTokenTransfer(address(0), account, amount);
     }
 
@@ -1003,7 +1005,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             baseTotalSupply -= amount;
             baseBalances[account] -= amount;
         }
-        emit Transfer(account, address(0), (amount * getPricePerShare()) / SCALE_FACTOR);
+        emit Transfer(account, address(0), (amount * getPricePerShare()) / PPS_SCALE_FACTOR);
         _afterTokenTransfer(account, address(0), amount);
     }
 
@@ -1030,7 +1032,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Collateral value in 18-decimal fixed-point
      */
     function _getCollateralValueFromShares(uint256 shares) internal view returns (uint256) {
-        return (shares * collateral.pricePerShare()) / SCALE_FACTOR;
+        return (shares * collateral.pricePerShare()) / PPS_SCALE_FACTOR;
     }
 
     /**
@@ -1041,7 +1043,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function getMaxDebtForCollateral(uint256 collateralAmount) public view returns (uint256) {
         uint256 collateralValue = _getCollateralValueFromShares(collateralAmount);
         uint256 scaledLtv = _getScaledLtv();
-        return (collateralValue * scaledLtv) / SCALE_FACTOR;
+        return (collateralValue * scaledLtv) / PPS_SCALE_FACTOR;
     }
 
     /**
@@ -1050,7 +1052,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      */
     function getUtilizationRate() public view returns (uint256) {
         if (totalAssets == 0) return 0;
-        uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / SCALE_FACTOR;
+        uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / PPS_SCALE_FACTOR;
         return (totalDebtValue * BPS_DENOMINATOR) / totalAssets;
     }
 
@@ -1142,22 +1144,21 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Debt value in tokens
      */
     function getUserDebtValue(address user) public view returns (uint256) {
-        return (userDebtShares[user] * getPricePerShareDebt()) / SCALE_FACTOR;
+        return (userDebtShares[user] * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
     }
 
     /**
      * @notice Updates interest and protocol fees
-     * @dev Normalizes totalDebtValue to 18 decimals for interest calculation using pool token decimals
      */
     function _updateInterest() internal virtual {
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
         if (timeElapsed > 0 && totalDebtShares > 0) {
             uint256 borrowingRate = getBorrowingRate();
-            uint256 scaledRate = (borrowingRate * SCALE_FACTOR) / BPS_DENOMINATOR;
-            uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / SCALE_FACTOR;
-            uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed) / (SECONDS_PER_YEAR * SCALE_FACTOR);
-            uint256 interestFactor = (borrowingInterest * SCALE_FACTOR) / totalDebtValue;
-            debtPricePerShare = debtPricePerShare + (debtPricePerShare * interestFactor) / SCALE_FACTOR;
+            uint256 scaledRate = (borrowingRate * scaleFactor) / BPS_DENOMINATOR;
+            uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / PPS_SCALE_FACTOR;
+            uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed) / (SECONDS_PER_YEAR * scaleFactor);
+            uint256 interestFactor = (borrowingInterest * PPS_SCALE_FACTOR) / totalDebtValue;
+            debtPricePerShare += (debtPricePerShare * interestFactor) / PPS_SCALE_FACTOR;
             uint256 stabilityFeeRate = _getStabilityFeeRate();
             uint256 fee = (borrowingInterest * stabilityFeeRate) / BPS_DENOMINATOR;
             uint256 lenderInterest = borrowingInterest - fee;
@@ -1245,7 +1246,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 excessValue = maxDebt - borrowed;
         uint256 pricePerShare = collateral.pricePerShare();
         require(pricePerShare > 0, "InvalidPrice");
-        uint256 excessShares = (excessValue * SCALE_FACTOR) / pricePerShare;
+        uint256 excessShares = (excessValue * PPS_SCALE_FACTOR) / pricePerShare;
         return excessShares > collateralShares ? collateralShares : excessShares;
     }
 
@@ -1257,7 +1258,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      */
     function getRequiredAmountForLiquidation(address user, uint256 debtSharesToCover) public view returns (uint256) {
         require(debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
-        return (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
+        return (debtSharesToCover * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
     }
 
     /**
@@ -1383,7 +1384,7 @@ contract NativeLending is BaseLending {
         _updateInterest();
         require(msg.value > 0, "ZeroAmount");
         require(totalAssets + msg.value <= assetsCap, "ExceedsAssetsCap");
-        uint256 baseTokens = (msg.value * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (msg.value * PPS_SCALE_FACTOR) / getPricePerShare();
         require(baseTokens > 0, "InsufficientShares");
         totalAssets += msg.value;
         _mint(receiver, baseTokens);
@@ -1400,7 +1401,7 @@ contract NativeLending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets >= amount, "InsufficientPoolAssets");
-        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (amount * PPS_SCALE_FACTOR) / getPricePerShare();
         require(address(this).balance >= amount, "InsufficientContractBalance");
         totalAssets -= amount;
         _burn(msg.sender, baseTokens);
@@ -1417,7 +1418,7 @@ contract NativeLending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(address(this).balance >= amount, "InsufficientBalance");
         require(amount <= getUserMaxBorrow(msg.sender), "InsufficientCollateral");
-        uint256 newDebtShares = (amount * SCALE_FACTOR) / debtPricePerShare;
+        uint256 newDebtShares = (amount * PPS_SCALE_FACTOR) / debtPricePerShare;
         userDebtShares[msg.sender] += newDebtShares;
         totalDebtShares += newDebtShares;
         SafeTransferLib.safeTransferETH(msg.sender, amount);
@@ -1433,13 +1434,13 @@ contract NativeLending is BaseLending {
         uint256 shares = userDebtShares[msg.sender];
         require(shares > 0, "NoDebt");
         uint256 dpps = debtPricePerShare;
-        uint256 totalDebtValue = (shares * dpps) / SCALE_FACTOR;
+        uint256 totalDebtValue = (shares * dpps) / PPS_SCALE_FACTOR;
         uint256 repayment = msg.value > totalDebtValue ? totalDebtValue : msg.value;
         if (repayment == totalDebtValue) {
             totalDebtShares -= shares;
             userDebtShares[msg.sender] = 0;
         } else {
-            uint256 sharesRepaid = (repayment * SCALE_FACTOR) / dpps;
+            uint256 sharesRepaid = (repayment * PPS_SCALE_FACTOR) / dpps;
             totalDebtShares -= sharesRepaid;
             userDebtShares[msg.sender] -= sharesRepaid;
         }
@@ -1458,16 +1459,16 @@ contract NativeLending is BaseLending {
         _updateInterest();
         require(isLiquidatable(user), "PositionNotLiquidatable");
         require(debtSharesToCover > 0 && debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
-        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
         uint256 collateralPricePerShare = collateral.pricePerShare();
         require(collateralPricePerShare > 0, "InvalidPrice");
-        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
+        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / PPS_SCALE_FACTOR;
         uint256 bonusAmount = (debtToCover * liquidationBonus) / BPS_DENOMINATOR;
         uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
         bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
         uint256 totalValueToSeize = debtToCover + bonusAmount;
         require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
-        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
+        uint256 collateralSharesToSeize = (totalValueToSeize * PPS_SCALE_FACTOR) / collateralPricePerShare;
         require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
         require(msg.value >= debtToCover, "InsufficientAmount");
         if (msg.value > debtToCover) {
@@ -1501,7 +1502,7 @@ contract NativeLending is BaseLending {
      * @return The excess balance that can be recovered
      */
     function getRecoverableAmount() public view returns (uint256) {
-        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
         uint256 requiredBalance = totalAssets > totalDebtValue ? totalAssets - totalDebtValue : 0;
         uint256 reservedBalance = requiredBalance + stabilityFees + getTotalPendingInterest();
         return address(this).balance > reservedBalance ? address(this).balance - reservedBalance : 0;
@@ -1576,7 +1577,7 @@ contract ERC20Lending is BaseLending {
         _updateInterest();
         require(amount > 0, "ZeroAmount");
         require(totalAssets + amount <= assetsCap, "ExceedsAssetsCap");
-        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (amount * PPS_SCALE_FACTOR) / getPricePerShare();
         require(baseTokens > 0, "InsufficientShares");
         asset.safeTransferFrom(address(msg.sender), address(this), amount);
         totalAssets += amount;
@@ -1594,7 +1595,7 @@ contract ERC20Lending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(amount <= balanceOf(msg.sender), "InsufficientBalance");
         require(totalAssets >= amount, "InsufficientPoolAssets");
-        uint256 baseTokens = (amount * SCALE_FACTOR) / getPricePerShare();
+        uint256 baseTokens = (amount * PPS_SCALE_FACTOR) / getPricePerShare();
         require(asset.balanceOf(address(this)) >= amount, "InsufficientContractBalance");
         totalAssets -= amount;
         _burn(msg.sender, baseTokens);
@@ -1611,7 +1612,7 @@ contract ERC20Lending is BaseLending {
         require(amount > 0, "ZeroAmount");
         require(asset.balanceOf(address(this)) >= amount, "InsufficientBalance");
         require(amount <= getUserMaxBorrow(msg.sender), "InsufficientCollateral");
-        uint256 newDebtShares = (amount * SCALE_FACTOR) / debtPricePerShare;
+        uint256 newDebtShares = (amount * PPS_SCALE_FACTOR) / debtPricePerShare;
         userDebtShares[msg.sender] += newDebtShares;
         totalDebtShares += newDebtShares;
         asset.safeTransfer(msg.sender, amount);
@@ -1629,13 +1630,13 @@ contract ERC20Lending is BaseLending {
         uint256 shares = userDebtShares[msg.sender];
         require(shares > 0, "NoDebt");
         uint256 dpps = debtPricePerShare;
-        uint256 totalDebtValue = (shares * dpps) / SCALE_FACTOR;
+        uint256 totalDebtValue = (shares * dpps) / PPS_SCALE_FACTOR;
         uint256 repayment = amount > totalDebtValue ? totalDebtValue : amount;
         if (repayment == totalDebtValue) {
             totalDebtShares -= shares;
             userDebtShares[msg.sender] = 0;
         } else {
-            uint256 sharesRepaid = (repayment * SCALE_FACTOR) / dpps;
+            uint256 sharesRepaid = (repayment * PPS_SCALE_FACTOR) / dpps;
             totalDebtShares -= sharesRepaid;
             userDebtShares[msg.sender] -= sharesRepaid;
         }
@@ -1656,16 +1657,16 @@ contract ERC20Lending is BaseLending {
         require(isLiquidatable(user), "PositionNotLiquidatable");
         require(debtSharesToCover > 0 && debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
         asset.safeTransferFrom(address(msg.sender), address(this), amount);
-        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
         uint256 collateralPricePerShare = collateral.pricePerShare();
         require(collateralPricePerShare > 0, "InvalidPrice");
-        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / SCALE_FACTOR;
+        uint256 collateralValue = (userCollateral[user] * collateralPricePerShare) / PPS_SCALE_FACTOR;
         uint256 bonusAmount = (debtToCover * liquidationBonus) / BPS_DENOMINATOR;
         uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
         bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
         uint256 totalValueToSeize = debtToCover + bonusAmount;
         require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
-        uint256 collateralSharesToSeize = (totalValueToSeize * SCALE_FACTOR) / collateralPricePerShare;
+        uint256 collateralSharesToSeize = (totalValueToSeize * PPS_SCALE_FACTOR) / collateralPricePerShare;
         require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
         require(amount >= debtToCover, "InsufficientAmount");
         if (amount > debtToCover) {
@@ -1699,7 +1700,7 @@ contract ERC20Lending is BaseLending {
      * @return The excess balance that can be recovered
      */
     function getRecoverableAmount() public view returns (uint256) {
-        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / SCALE_FACTOR;
+        uint256 totalDebtValue = (totalDebtShares * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
         uint256 requiredBalance = totalAssets > totalDebtValue ? totalAssets - totalDebtValue : 0;
         uint256 reservedBalance = requiredBalance + stabilityFees + getTotalPendingInterest();
         return asset.balanceOf(address(this)) > reservedBalance ? asset.balanceOf(address(this)) - reservedBalance : 0;
