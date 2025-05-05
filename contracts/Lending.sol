@@ -1052,7 +1052,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function getMaxDebtForCollateral(uint256 collateralAmount) public view returns (uint256) {
         uint256 collateralValue = _getCollateralValueFromShares(collateralAmount);
         uint256 scaledLtv = _getScaledLtv();
-        return (collateralValue * scaledLtv) / SCALE_FACTOR;
+        return (collateralValue * scaledLtv) / _getDecimalAdjustment();
     }
 
     /**
