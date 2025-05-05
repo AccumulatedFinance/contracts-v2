@@ -916,7 +916,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             uint256 fee = (grossInterest * stabilityFeeRate) / BPS_DENOMINATOR;
             totalValue += grossInterest - fee;
         }
-        return (totalValue * _getDecimalAdjustment()) / baseTotalSupply;
+        return (totalValue * SCALE_FACTOR) / baseTotalSupply;
     }
 
     /**
@@ -942,7 +942,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Balance of pool tokens in 18-decimal fixed-point
      */
     function balanceOf(address account) public view virtual override returns (uint256) {
-        return (baseBalances[account] * getPricePerShare()) / _getDecimalAdjustment();
+        return (baseBalances[account] * getPricePerShare()) / SCALE_FACTOR;
     }
 
     /**
@@ -950,7 +950,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Total supply of pool tokens in 18-decimal fixed-point
      */
     function totalSupply() public view virtual override returns (uint256) {
-        return (baseTotalSupply * getPricePerShare()) / _getDecimalAdjustment();
+        return (baseTotalSupply * getPricePerShare()) / SCALE_FACTOR;
     }
 
     /**
@@ -1041,7 +1041,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @return Collateral value in 18-decimal fixed-point
      */
     function _getCollateralValueFromShares(uint256 shares) internal view returns (uint256) {
-        return (shares * collateral.pricePerShare()) / (10 ** decimals());
+        return (shares * collateral.pricePerShare()) / SCALE_FACTOR;
     }
 
     /**
@@ -1052,7 +1052,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function getMaxDebtForCollateral(uint256 collateralAmount) public view returns (uint256) {
         uint256 collateralValue = _getCollateralValueFromShares(collateralAmount);
         uint256 scaledLtv = _getScaledLtv();
-        return (collateralValue * scaledLtv) / _getDecimalAdjustment();
+        return (collateralValue * scaledLtv) / SCALE_FACTOR;
     }
 
     /**
@@ -1127,17 +1127,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 utilization = getUtilizationRate();
         uint256 feeFactor = BPS_DENOMINATOR - stabilityFeeRateInBps;
         return (borrowingRate * utilization * feeFactor) / (BPS_DENOMINATOR * BPS_DENOMINATOR);
-    }
-
-    /**
-     * @notice Returns the maximum additional assets a user can borrow
-     * @param user User address
-     * @return Maximum additional borrowable assets
-     */
-    function getUserMaxBorrow(address user) public view returns (uint256) {
-        uint256 userDebtValue = getUserDebtValue(user);
-        uint256 maxDebt = getMaxDebtForCollateral(userCollateral[user]);
-        return maxDebt > userDebtValue ? maxDebt - userDebtValue : 0;
     }
 
     /**
@@ -1386,6 +1375,19 @@ contract NativeLending is BaseLending {
     }
 
     /**
+     * @notice Returns the maximum additional assets a user can borrow
+     * @param user User address
+     * @return Maximum additional borrowable assets
+     */
+    function getUserMaxBorrow(address user) public view returns (uint256) {
+        uint256 userDebtValue = getUserDebtValue(user);
+        uint256 maxDebt = getMaxDebtForCollateral(userCollateral[user]);
+        uint256 maxAvailable = address(this).balance;
+        uint256 maxBorrow = maxDebt > userDebtValue ? maxDebt - userDebtValue : 0;
+        return maxBorrow < maxAvailable ? maxBorrow : maxAvailable;
+    }
+
+    /**
      * @notice Deposits asset to supply liquidity, minting pool tokens
      * @param receiver Address to receive pool tokens
      */
@@ -1562,6 +1564,19 @@ contract ERC20Lending is BaseLending {
         uint256 userBalance = balanceOf(user);
         uint256 maxAvailable = asset.balanceOf(address(this));
         return userBalance < maxAvailable ? userBalance : maxAvailable;
+    }
+
+    /**
+     * @notice Returns the maximum additional assets a user can borrow
+     * @param user User address
+     * @return Maximum additional borrowable assets
+     */
+    function getUserMaxBorrow(address user) public view returns (uint256) {
+        uint256 userDebtValue = getUserDebtValue(user);
+        uint256 maxDebt = getMaxDebtForCollateral(userCollateral[user]);
+        uint256 maxAvailable = asset.balanceOf(address(this));
+        uint256 maxBorrow = maxDebt > userDebtValue ? maxDebt - userDebtValue : 0;
+        return maxBorrow < maxAvailable ? maxBorrow : maxAvailable;
     }
 
     /**
