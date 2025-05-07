@@ -1053,7 +1053,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     function getUtilizationRate() public view returns (uint256) {
         if (totalAssets == 0) return 0;
         uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / PPS_SCALE_FACTOR;
-        return (totalDebtValue * BPS_DENOMINATOR) / totalAssets;
+        uint256 utilization = (totalDebtValue * BPS_DENOMINATOR) / totalAssets;
+        return utilization > BPS_DENOMINATOR ? BPS_DENOMINATOR : utilization;
     }
 
     /**
