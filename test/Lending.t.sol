@@ -1,12 +1,7 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
-import "../NativeLending.sol";
-import "../ERC20Lending.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-
+import "../contracts/Lending.sol";
 // Mock ERC4626 for testing
 contract MockERC4626 is ERC20 {
     uint256 public pricePerShareValue = 1e18; // 1:1 for simplicity
