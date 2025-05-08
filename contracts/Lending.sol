@@ -793,8 +793,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public constant BPS_DENOMINATOR = 10000; // Basis points denominator (100% = 10000 bps)
 
     // LTV in basis points
-    uint256 public constant MAX_LTV = 9500; // 95% = 9500 bps
-    uint256 public ltv = 0; // Default 0 (borrowing disabled), in bps
+    uint256 public constant MAX_LTV = 9900; // 99% = 9900 bps
+    uint256 public ltv = 9500; // Default 95%, in bps
 
     // Borrowing rate params in bps
     uint256 public minBorrowingRate = 0;
@@ -849,7 +849,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      */
     constructor(IERC4626 _collateralToken)
         ERC20(
-            "AF Lending Pool Token",
+            string(abi.encodePacked("AF ", _collateralToken.symbol(), " Lending")),
             string(abi.encodePacked("afl", _collateralToken.symbol())),
             _collateralToken.decimals()
         )
@@ -1343,7 +1343,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
  * @notice Lending protocol accepting native tokens (e.g., ETH) as borrowable assets
  * @dev Inherits from BaseLending
  */
-contract NativeLending is BaseLending {
+abstract contract NativeLending is BaseLending {
     using SafeTransferLib for IERC4626;
 
     /**
@@ -1530,7 +1530,7 @@ contract NativeLending is BaseLending {
  * @notice Lending protocol accepting ERC20 tokens as borrowable assets
  * @dev Inherits from BaseLending
  */
-contract ERC20Lending is BaseLending {
+abstract contract ERC20Lending is BaseLending {
     using SafeTransferLib for IERC4626;
     using SafeTransferLib for IERC20;
 
