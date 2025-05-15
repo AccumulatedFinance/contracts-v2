@@ -824,15 +824,15 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event Withdraw(address indexed caller, address indexed receiver, uint256 assets, uint256 shares);
     event DepositCollateral(address indexed user, uint256 amount);
     event WithdrawCollateral(address indexed user, uint256 amount);
-    event Borrow(address indexed user, uint256 amount);
-    event Repay(address indexed user, uint256 amount);
+    event Borrow(address indexed user, uint256 amount, uint256 sharesBorrowed);
+    event Repay(address indexed user, uint256 amount, uint256 sharesRepaid);
     event UpdateLTV(uint256 newLTV);
     event UpdateBorrowingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
     event Recover(address indexed receiver, uint256 amount);
     event UpdateStabilityFee(uint256 newFee);
     event CollectStabilityFees(address indexed receiver, uint256 amount);
     event UpdateAssetsCap(uint256 newCap);
-    event Liquidation(address indexed user, address indexed liquidator, uint256 debtCovered, uint256 collateralSeized);
+    event Liquidation(address indexed user, address indexed liquidator, uint256 debtCovered, uint256 debtSharesCovered, uint256 collateralSeized);
     event UpdateLiquidator(address indexed newLiquidator);
     event UpdateLiquidationBonus(uint256 newBonus);
     event InterestUpdated(uint256 newDebtPricePerShare, uint256 lenderInterest, uint256 stabilityFee);
@@ -1424,7 +1424,7 @@ abstract contract NativeLending is BaseLending {
         userDebtShares[msg.sender] += newDebtShares;
         totalDebtShares += newDebtShares;
         SafeTransferLib.safeTransferETH(msg.sender, amount);
-        emit Borrow(msg.sender, amount);
+        emit Borrow(msg.sender, amount, newDebtShares);
     }
 
     /**
@@ -1435,21 +1435,18 @@ abstract contract NativeLending is BaseLending {
         require(msg.value > 0, "ZeroAmount");
         uint256 shares = userDebtShares[msg.sender];
         require(shares > 0, "NoDebt");
-        uint256 dpps = debtPricePerShare;
-        uint256 totalDebtValue = (shares * dpps) / PPS_SCALE_FACTOR;
+        uint256 totalDebtValue = (shares * debtPricePerShare) / PPS_SCALE_FACTOR;
         uint256 repayment = msg.value > totalDebtValue ? totalDebtValue : msg.value;
+        uint256 sharesRepaid = (repayment * PPS_SCALE_FACTOR) / debtPricePerShare;
         if (repayment == totalDebtValue) {
-            totalDebtShares -= shares;
-            userDebtShares[msg.sender] = 0;
-        } else {
-            uint256 sharesRepaid = (repayment * PPS_SCALE_FACTOR) / dpps;
-            totalDebtShares -= sharesRepaid;
-            userDebtShares[msg.sender] -= sharesRepaid;
+            sharesRepaid = shares;
         }
+        userDebtShares[msg.sender] -= sharesRepaid;
+        totalDebtShares -= sharesRepaid;
         if (msg.value > totalDebtValue) {
             SafeTransferLib.safeTransferETH(msg.sender, msg.value - totalDebtValue);
         }
-        emit Repay(msg.sender, repayment);
+        emit Repay(msg.sender, repayment, sharesRepaid);
     }
 
     /**
@@ -1482,7 +1479,7 @@ abstract contract NativeLending is BaseLending {
         userCollateral[user] -= collateralSharesToSeize;
         totalCollateral -= collateralSharesToSeize;
         collateral.safeTransfer(msg.sender, collateralSharesToSeize);
-        emit Liquidation(user, msg.sender, debtToCover, collateralSharesToSeize);
+        emit Liquidation(user, msg.sender, debtToCover, debtSharesToCover, collateralSharesToSeize);
     }
 
     /**
@@ -1618,7 +1615,7 @@ abstract contract ERC20Lending is BaseLending {
         userDebtShares[msg.sender] += newDebtShares;
         totalDebtShares += newDebtShares;
         asset.safeTransfer(msg.sender, amount);
-        emit Borrow(msg.sender, amount);
+        emit Borrow(msg.sender, amount, newDebtShares);
     }
 
     /**
@@ -1628,24 +1625,21 @@ abstract contract ERC20Lending is BaseLending {
     function repay(uint256 amount) public virtual nonReentrant {
         _updateInterest();
         require(amount > 0, "ZeroAmount");
-        asset.safeTransferFrom(address(msg.sender), address(this), amount);
         uint256 shares = userDebtShares[msg.sender];
         require(shares > 0, "NoDebt");
-        uint256 dpps = debtPricePerShare;
-        uint256 totalDebtValue = (shares * dpps) / PPS_SCALE_FACTOR;
+        uint256 totalDebtValue = (shares * debtPricePerShare) / PPS_SCALE_FACTOR;
         uint256 repayment = amount > totalDebtValue ? totalDebtValue : amount;
+        uint256 sharesRepaid = (repayment * PPS_SCALE_FACTOR) / debtPricePerShare;
         if (repayment == totalDebtValue) {
-            totalDebtShares -= shares;
-            userDebtShares[msg.sender] = 0;
-        } else {
-            uint256 sharesRepaid = (repayment * PPS_SCALE_FACTOR) / dpps;
-            totalDebtShares -= sharesRepaid;
-            userDebtShares[msg.sender] -= sharesRepaid;
+            sharesRepaid = shares;
         }
+        userDebtShares[msg.sender] -= sharesRepaid;
+        totalDebtShares -= sharesRepaid;
+        asset.safeTransferFrom(msg.sender, address(this), repayment);
         if (amount > totalDebtValue) {
             asset.safeTransfer(msg.sender, amount - totalDebtValue);
         }
-        emit Repay(msg.sender, repayment);
+        emit Repay(msg.sender, repayment, sharesRepaid);
     }
 
     /**
@@ -1680,7 +1674,7 @@ abstract contract ERC20Lending is BaseLending {
         userCollateral[user] -= collateralSharesToSeize;
         totalCollateral -= collateralSharesToSeize;
         collateral.safeTransfer(msg.sender, collateralSharesToSeize);
-        emit Liquidation(user, msg.sender, debtToCover, collateralSharesToSeize);
+        emit Liquidation(user, msg.sender, debtToCover, debtSharesToCover, collateralSharesToSeize);
     }
 
     /**
