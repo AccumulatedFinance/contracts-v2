@@ -870,14 +870,17 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
 
     /**
      * @notice Calculates pending interest for a given number of debt shares
-     * @param shares Number of debt shares
+     * @param debtShares Number of debt shares
      * @return Pending interest in assets
      */
-    function _getPendingInterest(uint256 shares) private view returns (uint256) {
-        if (shares == 0) return 0;
-        uint256 currentDebtValue = (shares * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
-        uint256 principal = shares; // Initial debtPricePerShare was 1 * PPS_SCALE_FACTOR
-        return currentDebtValue > principal ? currentDebtValue - principal : 0;
+    function _getPendingInterest(uint256 debtShares) private view returns (uint256) {
+        if (debtShares == 0) return 0;
+        uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
+        if (timeElapsed == 0) return 0;
+        uint256 borrowingRate = getBorrowingRate();
+        uint256 scaledRate = (borrowingRate * scaleFactor) / BPS_DENOMINATOR;
+        uint256 debtValue = (debtShares * debtPricePerShare) / PPS_SCALE_FACTOR;
+        return (debtValue * scaledRate * timeElapsed) / (SECONDS_PER_YEAR * scaleFactor);
     }
 
     /**
@@ -1152,12 +1155,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @notice Updates interest and protocol fees
      */
     function _updateInterest() internal virtual {
-        uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
-        if (timeElapsed > 0 && totalDebtShares > 0) {
-            uint256 borrowingRate = getBorrowingRate();
-            uint256 scaledRate = (borrowingRate * scaleFactor) / BPS_DENOMINATOR;
+        uint256 borrowingInterest = _getPendingInterest(totalDebtShares);
+        if (borrowingInterest > 0) {
             uint256 totalDebtValue = (totalDebtShares * debtPricePerShare) / PPS_SCALE_FACTOR;
-            uint256 borrowingInterest = (totalDebtValue * scaledRate * timeElapsed) / (SECONDS_PER_YEAR * scaleFactor);
             uint256 interestFactor = (borrowingInterest * PPS_SCALE_FACTOR) / totalDebtValue;
             debtPricePerShare += (debtPricePerShare * interestFactor) / PPS_SCALE_FACTOR;
             uint256 stabilityFeeRate = _getStabilityFeeRate();
