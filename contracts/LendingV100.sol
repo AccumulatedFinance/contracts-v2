@@ -1312,7 +1312,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @param newCap New asset cap in 18-decimal fixed-point (0 = no cap)
      */
     function updateAssetsCap(uint256 newCap) public onlyOwner {
-        require(newCap >= totalAssets, "NewMaxBelowCurrentAssets");
         assetsCap = newCap;
         emit UpdateAssetsCap(newCap);
     }
