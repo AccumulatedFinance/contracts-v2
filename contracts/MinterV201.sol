@@ -2372,3 +2372,63 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
     }
 
 }
+
+// BaseRestaking is BaseMinter extension with restaking features
+abstract contract BaseRestaking is BaseMinter {
+
+    uint256 public minDepositOrigin = 1; // min deposit amount (wei)
+    uint256 public depositOriginFee = 0; // possible fee to cover bridging costs
+    uint256 public constant MAX_DEPOSIT_ORIGIN_FEE = 500; // max deposit origin fee 500bp (5%)
+
+    constructor() {}
+
+    event UpdateDepositOriginFee(uint256 _depositOriginFee);
+    event UpdateMinDepositOrigin(uint256 _minDeposit);
+
+    function previewDepositOrigin(uint256 amount) public view virtual returns (uint256) {
+        uint256 feeAmount = amount*depositFee/FEE_DENOMINATOR;
+        uint256 netAmount = amount-feeAmount;
+        return netAmount;
+    }
+
+    function updateDepositOriginFee(uint256 newFee) public onlyOwner {
+        require(newFee <= MAX_DEPOSIT_ORIGIN_FEE, ">MaxFee");
+        depositOriginFee = newFee;
+        emit UpdateDepositOriginFee(newFee);
+    }
+
+    function updateMinDepositOrigin(uint256 newMin) public onlyOwner {
+        require(newMin > 0, "ZeroMinDepositOrigin");
+        require(newMin < type(uint128).max, "NewMinTooBig");
+        minDepositOrigin = newMin;
+        emit UpdateMinDepositOrigin(minDepositOrigin);
+    }
+
+}
+
+// NativeRestaking contract accepts network coin as a origin token for liquid restaking
+abstract contract NativeRestaking is BaseRestaking {
+
+    constructor() {
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ":native"));
+    }
+
+    event DepositOrigin(address indexed caller, address indexed receiver, uint256 amount);
+    event WithdrawOrigin(address indexed caller, address indexed receiver, uint256 amount);
+
+    function depositOrigin(address receiver) public payable virtual nonReentrant {
+        require(msg.value >= minDepositOrigin, "LessThanMin");
+        uint256 mintAmount = previewDepositOrigin(msg.value);
+        require(mintAmount > 0, "ZeroMintAmount");
+        stakingToken.mint(receiver, mintAmount);
+        emit DepositOrigin(address(msg.sender), receiver, msg.value);
+    }
+
+    function withdrawOrigin(uint256 amount, address receiver) public virtual onlyOwner {
+        require(amount > 0, "ZeroWithdraw");
+        SafeTransferLib.safeTransferETH(receiver, amount);
+        emit WithdrawOrigin(address(msg.sender), receiver, amount);
+    }
+
+
+}
