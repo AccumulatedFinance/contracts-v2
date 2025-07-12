@@ -26,10 +26,22 @@ contract rstCOREMinterRedeem is ERC20MinterRedeem, NativeRestaking {
 
     function previewDeposit(uint256 amount) public view virtual override returns (uint256) {
         uint256 feeAmount = amount*depositFee/FEE_DENOMINATOR;
-        uint256 netAmount = amount-feeAmount;        // apply exchangeRate from lst
+        uint256 netAmount = amount-feeAmount;
+        // apply exchangeRate from lst
         uint256 exchangeRate = lstMinter.getCurrentExchangeRate();
-        uint256 mintAmount = netAmount * exchangeRate / EXCHANGE_RATE_DENOMINATOR;
-        return mintAmount;
+        require(exchangeRate > 0, "ZeroExchangeRate");
+        uint256 finalAmount = netAmount * exchangeRate / EXCHANGE_RATE_DENOMINATOR;
+        return finalAmount;
+    }
+
+    function previewRedeem(uint256 amount) public view virtual override returns (uint256) {
+        uint256 feeAmount = amount*redeemFee/FEE_DENOMINATOR;
+        uint256 netAmount = amount-feeAmount;
+        // apply exchangeRate from lst
+        uint256 exchangeRate = lstMinter.getCurrentExchangeRate();
+        require(exchangeRate > 0, "ZeroExchangeRate");
+        uint256 finalAmount = netAmount * EXCHANGE_RATE_DENOMINATOR / exchangeRate;
+        return finalAmount;
     }
 
     function depositOrigin(address receiver) public payable virtual nonReentrant override {
