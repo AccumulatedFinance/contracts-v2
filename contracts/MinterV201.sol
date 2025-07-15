@@ -2430,5 +2430,37 @@ abstract contract NativeRestaking is BaseRestaking {
         emit WithdrawOrigin(address(msg.sender), receiver, amount);
     }
 
+}
+
+// ERC20Restaking contract accepts ERC20 token as a origin token for liquid restaking
+abstract contract ERC20Restaking is BaseRestaking {
+
+    using SafeTransferLib for IERC20;
+
+    // Origin token
+    IERC20 public originToken;
+
+    constructor(address _originToken) {
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ":erc20"));
+        originToken = IERC20(_originToken);
+    }
+
+    event DepositOrigin(address indexed caller, address indexed receiver, uint256 amount);
+    event WithdrawOrigin(address indexed caller, address indexed receiver, uint256 amount);
+
+    function depositOrigin(uint256 amount, address receiver) public virtual nonReentrant {
+        require(amount >= minDepositOrigin, "LessThanMin");
+        uint256 mintAmount = previewDepositOrigin(amount);
+        require(mintAmount > 0, "ZeroMintAmount");
+        originToken.safeTransferFrom(address(msg.sender), address(this), amount);
+        stakingToken.mint(receiver, mintAmount);
+        emit DepositOrigin(address(msg.sender), receiver, amount);
+    }
+
+    function withdrawOrigin(uint256 amount, address receiver) public virtual onlyOwner {
+        require(amount > 0, "ZeroWithdraw");
+        originToken.safeTransfer(receiver, amount);
+        emit WithdrawOrigin(address(msg.sender), receiver, amount);
+    }
 
 }
