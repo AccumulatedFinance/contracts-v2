@@ -789,6 +789,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     string public LENDING_TYPE = "base";
 
     IERC4626 public immutable collateral; // ERC4626 collateral token
+    IMinter public minter; // LST/LRT minter
     uint256 public totalDebtShares; // Total debt shares across all users
     uint256 public totalAssets; // Total asset deposited by suppliers (includes interest)
     uint256 public totalCollateral; // Total collateral deposited by borrowers
@@ -847,8 +848,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event Liquidation(address indexed user, address indexed liquidator, uint256 debtCovered, uint256 debtSharesCovered, uint256 collateralSeized);
     event UpdateLiquidator(address indexed newLiquidator);
     event UpdateLiquidationBonus(uint256 newBonus);
+    event UpdateMinter(address indexed newMinter);
     event InterestUpdated(uint256 newDebtPricePerShare, uint256 lenderInterest, uint256 stabilityFee);
-
 
     // Modifier for liquidator-only access
     modifier onlyLiquidator() {
@@ -860,7 +861,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
      * @notice Initializes the lending pool with an ERC4626 collateral token
      * @param _collateralToken The ERC4626 token used as collateral
      */
-    constructor(IERC4626 _collateralToken)
+    constructor(IERC4626 _collateralToken, address _lsdMinter)
         ERC20(
             string(abi.encodePacked("AF ", _collateralToken.symbol(), " Lending")),
             string(abi.encodePacked("afl", _collateralToken.symbol())),
@@ -868,6 +869,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         )
     {
         collateral = _collateralToken;
+        minter = IMinter(_lsdMinter);
         scaleFactor = 10**_collateralToken.decimals();
         lastUpdateTimestamp = block.timestamp;
         liquidator = msg.sender;
@@ -1356,6 +1358,17 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         liquidationBonus = newBonus;
         emit UpdateLiquidationBonus(newBonus);
     }
+
+    /**
+     * @notice Updates the LST minter address (only owner)
+     * @param newMinter Address of the LST minter contract
+     */
+    function updateMinter(address newMinter) public onlyOwner {
+        require(newMinter != address(0), "InvalidMinter");
+        minter = IMinter(newMinter);
+        require(minter.stakingToken() == collateral.asset(), "InvalidStakingToken");
+        emit UpdateMinter(newMinter);
+    }
 }
 
 /**
@@ -1370,7 +1383,7 @@ abstract contract NativeLending is BaseLending {
      * @notice Initializes the lending pool with an ERC4626 collateral token
      * @param _collateralToken The ERC4626 token used as collateral
      */
-    constructor(IERC4626 _collateralToken) BaseLending(_collateralToken) {
+    constructor(IERC4626 _collateralToken, address _lsdMinter) BaseLending(_collateralToken, _lsdMinter) {
         LENDING_TYPE = "native";
     }
 
@@ -1557,16 +1570,13 @@ abstract contract NativeLending is BaseLending {
 
     /**
      * @notice Leverages collateral in a loop by borrowing, minting LST via deposit, staking into ERC4626, and redepositing as collateral.
-     * @param lsdMinter Address of the LST minter contract
      * @param steps Number of leverage loops to perform
      */
-    function leverage(address lsdMinter, uint256 steps) external nonReentrant {
+    function leverage(uint256 steps) external nonReentrant {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
-        require(lsdMinter != address(0), "InvalidMinter");
         uint256 totalBorrowed = 0;
         uint256 totalDeposited = 0;        
-        IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
         require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
@@ -1586,16 +1596,13 @@ abstract contract NativeLending is BaseLending {
 
     /**
      * @notice Leverages collateral in a loop by borrowing, minting LST via depositOrigin, staking into ERC4626, and redepositing as collateral.
-     * @param lsdMinter Address of the LST minter contract
      * @param steps Number of leverage loops to perform
      */
-    function leverageOrigin(address lsdMinter, uint256 steps) external nonReentrant {
+    function leverageOrigin(uint256 steps) external nonReentrant {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
-        require(lsdMinter != address(0), "InvalidMinter");
         uint256 totalBorrowed = 0;
         uint256 totalDeposited = 0;        
-        IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
         stakingToken.approve(address(collateral), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
@@ -1629,7 +1636,7 @@ abstract contract ERC20Lending is BaseLending {
      * @param _assetToken The ERC20 token used as the borrowable asset
      * @param _collateralToken The ERC4626 token used as collateral
      */
-    constructor(IERC20 _assetToken, IERC4626 _collateralToken) BaseLending(_collateralToken) {
+    constructor(IERC20 _assetToken, IERC4626 _collateralToken, address _lsdMinter) BaseLending(_collateralToken, _lsdMinter) {
         LENDING_TYPE = "erc20";
         asset = IERC20(_assetToken);
     }
@@ -1823,16 +1830,13 @@ abstract contract ERC20Lending is BaseLending {
 
     /**
      * @notice Leverages collateral in a loop by borrowing, minting LST via deposit, staking into ERC4626, and redepositing as collateral.
-     * @param lsdMinter Address of the LST minter contract
      * @param steps Number of leverage loops to perform
      */
-    function leverage(address lsdMinter, uint256 steps) external nonReentrant {
+    function leverage(uint256 steps) external nonReentrant {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
-        require(lsdMinter != address(0), "InvalidMinter");
         uint256 totalBorrowed = 0;
         uint256 totalDeposited = 0;        
-        IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
@@ -1853,16 +1857,13 @@ abstract contract ERC20Lending is BaseLending {
 
     /**
      * @notice Leverages collateral in a loop by borrowing, minting LST via depositOrigin, staking into ERC4626, and redepositing as collateral.
-     * @param lsdMinter Address of the LST minter contract
      * @param steps Number of leverage loops to perform
      */
-    function leverageOrigin(address lsdMinter, uint256 steps) external nonReentrant {
+    function leverageOrigin(uint256 steps) external nonReentrant {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
-        require(lsdMinter != address(0), "InvalidMinter");
         uint256 totalBorrowed = 0;
         uint256 totalDeposited = 0;        
-        IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
