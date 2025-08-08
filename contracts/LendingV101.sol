@@ -763,7 +763,8 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata {
 
 // ERC4626 interface
 interface IERC4626 is IERC20Metadata {
-    function pricePerShare() external view returns (uint256); // Asset value per share (used in BaseLending)
+    function asset() external view returns (address);
+    function pricePerShare() external view returns (uint256);
     function deposit(uint256 assets, address receiver) external returns (uint256 shares);
 }
 
@@ -1567,6 +1568,7 @@ abstract contract NativeLending is BaseLending {
         uint256 totalDeposited = 0;        
         IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
+        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
@@ -1595,6 +1597,7 @@ abstract contract NativeLending is BaseLending {
         uint256 totalDeposited = 0;        
         IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
+        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
@@ -1832,6 +1835,7 @@ abstract contract ERC20Lending is BaseLending {
         uint256 totalDeposited = 0;        
         IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
+        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
@@ -1862,6 +1866,7 @@ abstract contract ERC20Lending is BaseLending {
         uint256 totalDeposited = 0;        
         IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
+        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
