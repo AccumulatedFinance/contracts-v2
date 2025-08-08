@@ -1903,7 +1903,7 @@ abstract contract ERC721Enumerable is ERC721, IERC721Enumerable {
 // BaseMinter
 abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
-    string public constant VERSION = "v2.0.1";
+    string public constant VERSION = "v2.0.2";
     string public MINTER_TYPE = "base";
 
     uint256 public depositFee = 0; // possible fee to cover bridging costs
