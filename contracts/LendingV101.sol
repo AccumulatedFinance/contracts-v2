@@ -1597,7 +1597,6 @@ abstract contract NativeLending is BaseLending {
         uint256 totalDeposited = 0;        
         IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
-        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
@@ -1835,7 +1834,6 @@ abstract contract ERC20Lending is BaseLending {
         uint256 totalDeposited = 0;        
         IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
-        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
@@ -1866,7 +1864,6 @@ abstract contract ERC20Lending is BaseLending {
         uint256 totalDeposited = 0;        
         IMinter minter = IMinter(lsdMinter);
         IERC20 stakingToken = IERC20(minter.stakingToken());
-        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
