@@ -1953,7 +1953,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
     function mint(uint256 amount, address receiver) public onlyOwner {
         stakingToken.mint(receiver, amount);
-        emit Mint(address(msg.sender), receiver, amount);
+        emit Mint(msg.sender, receiver, amount);
     }
 
 }
@@ -1975,18 +1975,18 @@ contract NativeMinter is BaseMinter {
         emit FundsReceived(msg.sender, msg.value);
     }
 
-    function deposit(address receiver) public payable virtual nonReentrant {
+    function deposit(address receiver) public payable virtual nonReentrant returns (uint256 minted) {
         require(msg.value >= minDeposit, "LessThanMin");
-        uint256 mintAmount = previewDeposit(msg.value);
-        require(mintAmount > 0, "ZeroMintAmount");
-        stakingToken.mint(receiver, mintAmount);
-        emit Deposit(address(msg.sender), receiver, msg.value);
+        minted = previewDeposit(msg.value);
+        require(minted > 0, "ZeroMintAmount");
+        stakingToken.mint(receiver, minted);
+        emit Deposit(msg.sender, receiver, msg.value);
     }
 
     function withdraw(uint256 amount, address receiver) public virtual onlyOwner {
         require(amount > 0, "ZeroWithdraw");
         SafeTransferLib.safeTransferETH(receiver, amount);
-        emit Withdraw(address(msg.sender), receiver, amount);
+        emit Withdraw(msg.sender, receiver, amount);
     }
 
 }
@@ -2007,19 +2007,19 @@ contract ERC20Minter is BaseMinter {
     event Deposit(address indexed caller, address indexed receiver, uint256 amount);
     event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
 
-    function deposit(uint256 amount, address receiver) public virtual nonReentrant {
+    function deposit(uint256 amount, address receiver) public virtual nonReentrant returns (uint256 minted) {
         require(amount >= minDeposit, "LessThanMin");
-        uint256 mintAmount = previewDeposit(amount);
-        require(mintAmount > 0, "ZeroMintAmount");
-        baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
-        stakingToken.mint(receiver, mintAmount);
-        emit Deposit(address(msg.sender), receiver, amount);
+        minted = previewDeposit(amount);
+        require(minted > 0, "ZeroMintAmount");
+        baseToken.safeTransferFrom(msg.sender, address(this), amount);
+        stakingToken.mint(receiver, minted);
+        emit Deposit(msg.sender, receiver, amount);
     }
 
     function withdraw(uint256 amount, address receiver) public virtual onlyOwner {
         require(amount > 0, "ZeroWithdraw");
         baseToken.safeTransfer(receiver, amount);
-        emit Withdraw(address(msg.sender), receiver, amount);
+        emit Withdraw(msg.sender, receiver, amount);
     }
 
 }
@@ -2059,14 +2059,14 @@ contract NativeMinterRedeem is BaseMinterRedeem, NativeMinter {
     constructor(address _stakingToken) NativeMinter(_stakingToken) {
     }
 
-    function redeem(uint256 amount, address receiver) public virtual nonReentrant {
+    function redeem(uint256 amount, address receiver) public virtual nonReentrant returns (uint256 redeemed) {
         require(amount > 0, "ZeroRedeem");
-        uint256 redeemAmount = previewRedeem(amount);
-        require(redeemAmount > 0, "ZeroRedeemAmount");
-        stakingToken.safeTransferFrom(address(msg.sender), address(this), amount);
+        redeemed = previewRedeem(amount);
+        require(redeemed > 0, "ZeroRedeemAmount");
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         stakingToken.burn(amount);
-        SafeTransferLib.safeTransferETH(receiver, redeemAmount);
-        emit Redeem(address(msg.sender), receiver, amount);
+        SafeTransferLib.safeTransferETH(receiver, redeemed);
+        emit Redeem(msg.sender, receiver, amount);
     }
 
 }
@@ -2079,14 +2079,14 @@ contract ERC20MinterRedeem is BaseMinterRedeem, ERC20Minter {
     constructor(address _baseToken, address _stakingToken) ERC20Minter(_baseToken, _stakingToken) {
     }
 
-    function redeem(uint256 amount, address receiver) public virtual nonReentrant {
+    function redeem(uint256 amount, address receiver) public virtual nonReentrant returns (uint256 redeemed) {
         require(amount > 0, "ZeroRedeem");
-        uint256 redeemAmount = previewRedeem(amount);
-        require(redeemAmount > 0, "ZeroRedeemAmount");
-        stakingToken.safeTransferFrom(address(msg.sender), address(this), amount);
+        redeemed = previewRedeem(amount);
+        require(redeemed > 0, "ZeroRedeemAmount");
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         stakingToken.burn(amount);
-        baseToken.safeTransfer(receiver, redeemAmount);
-        emit Redeem(address(msg.sender), receiver, amount);
+        baseToken.safeTransfer(receiver, redeemed);
+        emit Redeem(msg.sender, receiver, amount);
     }
 
 }
@@ -2198,15 +2198,15 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         emit UpdateMinWithdrawal(minWithdrawal);
     }
 
-    function requestWithdrawal(uint256 amount, address receiver) public nonReentrant {
+    function requestWithdrawal(uint256 amount, address receiver) public nonReentrant returns (uint256 withdrawalId) {
         require(amount >= minWithdrawal, "LessThanMin");
         uint256 netAmount = previewWithdrawal(amount);
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
 
-        uint256 withdrawalId = nextWithdrawalId++;
+        withdrawalId = nextWithdrawalId++;
         _mint(receiver, withdrawalId);
 
-        emit RequestWithdrawal(address(msg.sender), receiver, amount, withdrawalId);
+        emit RequestWithdrawal(msg.sender, receiver, amount, withdrawalId);
 
         totalWithdrawalFees = totalWithdrawalFees+amount-netAmount;
 
@@ -2279,7 +2279,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         uint256 feesToCollect = totalWithdrawalFees;
         totalWithdrawalFees = 0;
         stakingToken.safeTransfer(receiver, feesToCollect);
-        emit CollectWithdrawalFees(address(msg.sender), receiver, feesToCollect);
+        emit CollectWithdrawalFees(msg.sender, receiver, feesToCollect);
     }
 
 }
@@ -2311,7 +2311,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         require(amount > 0, "ZeroWithdraw");
         require(amount <= balance, "MoreThanAvailable");
         SafeTransferLib.safeTransferETH(receiver, amount);
-        emit Withdraw(address(msg.sender), receiver, amount);
+        emit Withdraw(msg.sender, receiver, amount);
     }
     
     function claimWithdrawal(uint256 withdrawalId, address receiver) public virtual nonReentrant {
@@ -2322,7 +2322,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals-request.amount;
         SafeTransferLib.safeTransferETH(receiver, request.amount);
-        emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
+        emit ClaimWithdrawal(msg.sender, receiver, request.amount, withdrawalId);
     }
 
 }
@@ -2357,7 +2357,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         require(amount > 0, "ZeroWithdraw");
         require(amount <= balance, "MoreThanAvailable");
         baseToken.safeTransfer(receiver, amount);
-        emit Withdraw(address(msg.sender), receiver, amount);
+        emit Withdraw(msg.sender, receiver, amount);
     }
     
     function claimWithdrawal(uint256 withdrawalId, address receiver) public virtual nonReentrant {
@@ -2368,7 +2368,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         request.claimed = true;
         totalUnclaimedWithdrawals = totalUnclaimedWithdrawals-request.amount;
         baseToken.safeTransfer(receiver, request.amount);
-        emit ClaimWithdrawal(address(msg.sender), receiver, request.amount, withdrawalId);
+        emit ClaimWithdrawal(msg.sender, receiver, request.amount, withdrawalId);
     }
 
 }
@@ -2416,18 +2416,18 @@ abstract contract NativeRestaking is BaseRestaking {
     event DepositOrigin(address indexed caller, address indexed receiver, uint256 amount);
     event WithdrawOrigin(address indexed caller, address indexed receiver, uint256 amount);
 
-    function depositOrigin(address receiver) public payable virtual nonReentrant {
+    function depositOrigin(address receiver) public payable virtual nonReentrant returns (uint256 minted) {
         require(msg.value >= minDepositOrigin, "LessThanMin");
-        uint256 mintAmount = previewDepositOrigin(msg.value);
-        require(mintAmount > 0, "ZeroMintAmount");
-        stakingToken.mint(receiver, mintAmount);
-        emit DepositOrigin(address(msg.sender), receiver, msg.value);
+        minted = previewDepositOrigin(msg.value);
+        require(minted > 0, "ZeroMintAmount");
+        stakingToken.mint(receiver, minted);
+        emit DepositOrigin(msg.sender, receiver, msg.value);
     }
 
     function withdrawOrigin(uint256 amount, address receiver) public virtual onlyOwner {
         require(amount > 0, "ZeroWithdraw");
         SafeTransferLib.safeTransferETH(receiver, amount);
-        emit WithdrawOrigin(address(msg.sender), receiver, amount);
+        emit WithdrawOrigin(msg.sender, receiver, amount);
     }
 
 }
@@ -2448,19 +2448,19 @@ abstract contract ERC20Restaking is BaseRestaking {
     event DepositOrigin(address indexed caller, address indexed receiver, uint256 amount);
     event WithdrawOrigin(address indexed caller, address indexed receiver, uint256 amount);
 
-    function depositOrigin(uint256 amount, address receiver) public virtual nonReentrant {
+    function depositOrigin(uint256 amount, address receiver) public virtual nonReentrant returns (uint256 minted) {
         require(amount >= minDepositOrigin, "LessThanMin");
-        uint256 mintAmount = previewDepositOrigin(amount);
-        require(mintAmount > 0, "ZeroMintAmount");
-        originToken.safeTransferFrom(address(msg.sender), address(this), amount);
-        stakingToken.mint(receiver, mintAmount);
-        emit DepositOrigin(address(msg.sender), receiver, amount);
+        minted = previewDepositOrigin(amount);
+        require(minted > 0, "ZeroMintAmount");
+        originToken.safeTransferFrom(msg.sender, address(this), amount);
+        stakingToken.mint(receiver, minted);
+        emit DepositOrigin(msg.sender, receiver, amount);
     }
 
     function withdrawOrigin(uint256 amount, address receiver) public virtual onlyOwner {
         require(amount > 0, "ZeroWithdraw");
         originToken.safeTransfer(receiver, amount);
-        emit WithdrawOrigin(address(msg.sender), receiver, amount);
+        emit WithdrawOrigin(msg.sender, receiver, amount);
     }
 
 }
