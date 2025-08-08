@@ -761,9 +761,19 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata {
     ) internal virtual {}
 }
 
-// ERC20 interface
+// ERC4626 interface
 interface IERC4626 is IERC20Metadata {
     function pricePerShare() external view returns (uint256); // Asset value per share (used in BaseLending)
+    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
+}
+
+// Minter interface
+interface IMinter {
+    function stakingToken() external view returns (address);
+    function deposit(address receiver) external payable returns (uint256 minted);
+    function deposit(uint256 amount, address receiver) external returns (uint256 minted);
+    function depositOrigin(address receiver) external payable returns (uint256 minted);
+    function depositOrigin(uint256 amount, address receiver) external returns (uint256 minted);
 }
 
 /**
@@ -774,7 +784,7 @@ interface IERC4626 is IERC20Metadata {
 abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     using SafeTransferLib for IERC4626;
 
-    string public constant VERSION = "v1.0.0";
+    string public constant VERSION = "v1.0.1";
     string public LENDING_TYPE = "base";
 
     IERC4626 public immutable collateral; // ERC4626 collateral token
@@ -824,8 +834,9 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event Withdraw(address indexed caller, address indexed receiver, uint256 assets, uint256 shares);
     event DepositCollateral(address indexed user, uint256 amount);
     event WithdrawCollateral(address indexed user, uint256 amount);
-    event Borrow(address indexed user, uint256 amount, uint256 sharesBorrowed);
+    event Borrow(address indexed user, address indexed receiver, uint256 amount, uint256 sharesBorrowed);
     event Repay(address indexed user, uint256 amount, uint256 sharesRepaid);
+    event Leverage(address indexed caller, uint256 totalBorrowed, uint256 totalDeposited);
     event UpdateLTV(uint256 newLTV);
     event UpdateBorrowingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
     event Recover(address indexed receiver, uint256 amount);
@@ -836,6 +847,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event UpdateLiquidator(address indexed newLiquidator);
     event UpdateLiquidationBonus(uint256 newBonus);
     event InterestUpdated(uint256 newDebtPricePerShare, uint256 lenderInterest, uint256 stabilityFee);
+
 
     // Modifier for liquidator-only access
     modifier onlyLiquidator() {
@@ -1169,6 +1181,15 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
             emit InterestUpdated(debtPricePerShare, lenderInterest, fee);
         }
     }
+    
+    /**
+     * @notice Updates state and emits event
+     * @param amount Amount of collateral to deposit
+     */
+    function _afterCollateralDeposit(uint256 amount, address borrower) internal virtual {
+        userCollateral[borrower] += amount;
+        totalCollateral += amount;
+    }
 
     /**
      * @notice Deposits ERC4626 collateral
@@ -1178,8 +1199,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         _updateInterest();
         require(amount > 0, "ZeroAmount");
         collateral.safeTransferFrom(msg.sender, address(this), amount);
-        userCollateral[msg.sender] += amount;
-        totalCollateral += amount;
+        _afterCollateralDeposit(amount, msg.sender);
         emit DepositCollateral(msg.sender, amount);
     }
 
@@ -1354,6 +1374,26 @@ abstract contract NativeLending is BaseLending {
     }
 
     /**
+     * @notice Borrows asset against collateral
+     * @param amount Amount of asset to borrow
+     * @param borrower Borrower address
+     * @param receiver Receiver of borrowed funds
+     */
+    function _borrow(uint256 amount, address borrower, address receiver) internal virtual returns (uint256 newDebtShares) {
+        _updateInterest();
+        require(amount > 0, "ZeroAmount");
+        require(address(this).balance >= amount, "InsufficientBalance");
+        require(amount <= getUserMaxBorrow(borrower), "InsufficientCollateral");
+        newDebtShares = (amount * PPS_SCALE_FACTOR) / debtPricePerShare;
+        userDebtShares[borrower] += newDebtShares;
+        totalDebtShares += newDebtShares;
+        // Only perform external transfer if receiver is not this contract
+        if (receiver != address(this)) {
+            SafeTransferLib.safeTransferETH(receiver, amount);
+        }
+    }
+
+    /**
      * @notice Calculates the maximum assets a user can withdraw
      * @param user Address of the user
      * @return Maximum withdrawable assets in 18-decimal fixed-point
@@ -1413,17 +1453,11 @@ abstract contract NativeLending is BaseLending {
     /**
      * @notice Borrows asset against collateral
      * @param amount Amount of asset to borrow
+     * @param receiver Recipient of the assets
      */
-    function borrow(uint256 amount) public virtual nonReentrant {
-        _updateInterest();
-        require(amount > 0, "ZeroAmount");
-        require(address(this).balance >= amount, "InsufficientBalance");
-        require(amount <= getUserMaxBorrow(msg.sender), "InsufficientCollateral");
-        uint256 newDebtShares = (amount * PPS_SCALE_FACTOR) / debtPricePerShare;
-        userDebtShares[msg.sender] += newDebtShares;
-        totalDebtShares += newDebtShares;
-        SafeTransferLib.safeTransferETH(msg.sender, amount);
-        emit Borrow(msg.sender, amount, newDebtShares);
+    function borrow(uint256 amount, address receiver) public virtual nonReentrant {
+        uint256 newDebtShares = _borrow(amount, msg.sender, receiver);
+        emit Borrow(msg.sender, receiver, amount, newDebtShares);
     }
 
     /**
@@ -1519,6 +1553,62 @@ abstract contract NativeLending is BaseLending {
         SafeTransferLib.safeTransferETH(receiver, amount);
         emit Recover(receiver, amount);
     }
+
+    /**
+     * @notice Leverages collateral in a loop by borrowing, minting LST via deposit, staking into ERC4626, and redepositing as collateral.
+     * @param lsdMinter Address of the LST minter contract
+     * @param steps Number of leverage loops to perform
+     */
+    function leverage(address lsdMinter, uint256 steps) external nonReentrant {
+        _updateInterest();
+        require(steps > 0 && steps <= 50, "InvalidSteps");
+        require(lsdMinter != address(0), "InvalidMinter");
+        uint256 totalBorrowed = 0;
+        uint256 totalDeposited = 0;        
+        IMinter minter = IMinter(lsdMinter);
+        IERC20 stakingToken = IERC20(minter.stakingToken());
+        stakingToken.approve(address(collateral), type(uint256).max);
+        for (uint256 i = 0; i < steps; i++) {
+            uint256 maxBorrow = getUserMaxBorrow(msg.sender);
+            require(maxBorrow > 0, "NoMoreBorrow");
+            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 minted = minter.deposit{value: maxBorrow}(address(this));
+            uint256 shares = collateral.deposit(minted, address(this));
+            _afterCollateralDeposit(shares, msg.sender);
+            totalBorrowed += maxBorrow;
+            totalDeposited += shares;
+        }
+        stakingToken.approve(address(collateral), 0);
+        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
+    }
+
+    /**
+     * @notice Leverages collateral in a loop by borrowing, minting LST via depositOrigin, staking into ERC4626, and redepositing as collateral.
+     * @param lsdMinter Address of the LST minter contract
+     * @param steps Number of leverage loops to perform
+     */
+    function leverageOrigin(address lsdMinter, uint256 steps) external nonReentrant {
+        _updateInterest();
+        require(steps > 0 && steps <= 50, "InvalidSteps");
+        require(lsdMinter != address(0), "InvalidMinter");
+        uint256 totalBorrowed = 0;
+        uint256 totalDeposited = 0;        
+        IMinter minter = IMinter(lsdMinter);
+        IERC20 stakingToken = IERC20(minter.stakingToken());
+        stakingToken.approve(address(collateral), type(uint256).max);
+        for (uint256 i = 0; i < steps; i++) {
+            uint256 maxBorrow = getUserMaxBorrow(msg.sender);
+            require(maxBorrow > 0, "NoMoreBorrow");
+            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 minted = minter.depositOrigin{value: maxBorrow}(address(this));
+            uint256 shares = collateral.deposit(minted, address(this));
+            _afterCollateralDeposit(shares, msg.sender);
+            totalBorrowed += maxBorrow;
+            totalDeposited += shares;
+        }
+        stakingToken.approve(address(collateral), 0);
+        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
+    }
 }
 
 /**
@@ -1540,6 +1630,26 @@ abstract contract ERC20Lending is BaseLending {
     constructor(IERC20 _assetToken, IERC4626 _collateralToken) BaseLending(_collateralToken) {
         LENDING_TYPE = "erc20";
         asset = IERC20(_assetToken);
+    }
+
+    /**
+     * @notice Borrows asset against collateral
+     * @param amount Amount of asset to borrow
+     * @param borrower Borrower address
+     * @param receiver Recipient of the assets
+     */
+    function _borrow(uint256 amount, address borrower, address receiver) internal virtual returns (uint256 newDebtShares) {
+        _updateInterest();
+        require(amount > 0, "ZeroAmount");
+        require(asset.balanceOf(address(this)) >= amount, "InsufficientBalance");
+        require(amount <= getUserMaxBorrow(borrower), "InsufficientCollateral");
+        newDebtShares = (amount * PPS_SCALE_FACTOR) / debtPricePerShare;
+        userDebtShares[borrower] += newDebtShares;
+        totalDebtShares += newDebtShares;
+        // Only perform external transfer if receiver is not this contract
+        if (receiver != address(this)) {
+            asset.safeTransfer(receiver, amount);
+        }
     }
 
     /**
@@ -1604,17 +1714,11 @@ abstract contract ERC20Lending is BaseLending {
     /**
      * @notice Borrows asset against collateral
      * @param amount Amount of asset to borrow
+     * @param receiver Recipient of the assets
      */
-    function borrow(uint256 amount) public virtual nonReentrant {
-        _updateInterest();
-        require(amount > 0, "ZeroAmount");
-        require(asset.balanceOf(address(this)) >= amount, "InsufficientBalance");
-        require(amount <= getUserMaxBorrow(msg.sender), "InsufficientCollateral");
-        uint256 newDebtShares = (amount * PPS_SCALE_FACTOR) / debtPricePerShare;
-        userDebtShares[msg.sender] += newDebtShares;
-        totalDebtShares += newDebtShares;
-        asset.safeTransfer(msg.sender, amount);
-        emit Borrow(msg.sender, amount, newDebtShares);
+    function borrow(uint256 amount, address receiver) public virtual nonReentrant {
+        uint256 newDebtShares = _borrow(amount, msg.sender, receiver);
+        emit Borrow(msg.sender, receiver, amount, newDebtShares);
     }
 
     /**
@@ -1713,5 +1817,65 @@ abstract contract ERC20Lending is BaseLending {
         require(amount <= excessBalance, "AmountExceedsExcess");
         asset.safeTransfer(receiver, amount);
         emit Recover(receiver, amount);
+    }
+
+    /**
+     * @notice Leverages collateral in a loop by borrowing, minting LST via deposit, staking into ERC4626, and redepositing as collateral.
+     * @param lsdMinter Address of the LST minter contract
+     * @param steps Number of leverage loops to perform
+     */
+    function leverage(address lsdMinter, uint256 steps) external nonReentrant {
+        _updateInterest();
+        require(steps > 0 && steps <= 50, "InvalidSteps");
+        require(lsdMinter != address(0), "InvalidMinter");
+        uint256 totalBorrowed = 0;
+        uint256 totalDeposited = 0;        
+        IMinter minter = IMinter(lsdMinter);
+        IERC20 stakingToken = IERC20(minter.stakingToken());
+        stakingToken.approve(address(collateral), type(uint256).max);
+        asset.approve(address(minter), type(uint256).max);
+        for (uint256 i = 0; i < steps; i++) {
+            uint256 maxBorrow = getUserMaxBorrow(msg.sender);
+            require(maxBorrow > 0, "NoMoreBorrow");
+            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 minted = minter.deposit(maxBorrow, address(this));
+            uint256 shares = collateral.deposit(minted, address(this));
+            _afterCollateralDeposit(shares, msg.sender);
+            totalBorrowed += maxBorrow;
+            totalDeposited += shares;
+        }
+        stakingToken.approve(address(collateral), 0);
+        asset.approve(address(minter), 0);
+        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
+    }
+
+    /**
+     * @notice Leverages collateral in a loop by borrowing, minting LST via depositOrigin, staking into ERC4626, and redepositing as collateral.
+     * @param lsdMinter Address of the LST minter contract
+     * @param steps Number of leverage loops to perform
+     */
+    function leverageOrigin(address lsdMinter, uint256 steps) external nonReentrant {
+        _updateInterest();
+        require(steps > 0 && steps <= 50, "InvalidSteps");
+        require(lsdMinter != address(0), "InvalidMinter");
+        uint256 totalBorrowed = 0;
+        uint256 totalDeposited = 0;        
+        IMinter minter = IMinter(lsdMinter);
+        IERC20 stakingToken = IERC20(minter.stakingToken());
+        stakingToken.approve(address(collateral), type(uint256).max);
+        asset.approve(address(minter), type(uint256).max);
+        for (uint256 i = 0; i < steps; i++) {
+            uint256 maxBorrow = getUserMaxBorrow(msg.sender);
+            require(maxBorrow > 0, "NoMoreBorrow");
+            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 minted = minter.depositOrigin(maxBorrow, address(this));
+            uint256 shares = collateral.deposit(minted, address(this));
+            _afterCollateralDeposit(shares, msg.sender);
+            totalBorrowed += maxBorrow;
+            totalDeposited += shares;
+        }
+        stakingToken.approve(address(collateral), 0);
+        asset.approve(address(minter), 0);
+        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
     }
 }
