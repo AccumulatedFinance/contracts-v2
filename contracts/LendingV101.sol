@@ -838,7 +838,7 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     event WithdrawCollateral(address indexed user, uint256 amount);
     event Borrow(address indexed user, address indexed receiver, uint256 amount, uint256 sharesBorrowed);
     event Repay(address indexed user, uint256 amount, uint256 sharesRepaid);
-    event Leverage(address indexed caller, uint256 totalBorrowed, uint256 totalDeposited);
+    event Leverage(address indexed user, uint256 borrowed, uint256 sharesBorrowed, uint256 collateral);
     event UpdateLTV(uint256 newLTV);
     event UpdateBorrowingRateParams(uint256 minRate, uint256 vertexRate, uint256 maxRate, uint256 vertexUtilization);
     event Recover(address indexed receiver, uint256 amount);
@@ -1576,22 +1576,24 @@ abstract contract NativeLending is BaseLending {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
         uint256 totalBorrowed = 0;
-        uint256 totalDeposited = 0;        
+        uint256 totalSharesBorrowed = 0;
+        uint256 totalCollateral = 0;        
         IERC20 stakingToken = IERC20(minter.stakingToken());
         require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
             require(maxBorrow > 0, "NoMoreBorrow");
-            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 debtShares = _borrow(maxBorrow, msg.sender, address(this));
             uint256 minted = minter.deposit{value: maxBorrow}(address(this));
             uint256 shares = collateral.deposit(minted, address(this));
             _afterCollateralDeposit(shares, msg.sender);
             totalBorrowed += maxBorrow;
-            totalDeposited += shares;
+            totalSharesBorrowed += debtShares;
+            totalCollateral += shares;
         }
         stakingToken.approve(address(collateral), 0);
-        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
+        emit Leverage(msg.sender, totalBorrowed, totalSharesBorrowed, totalCollateral);
     }
 
     /**
@@ -1602,21 +1604,23 @@ abstract contract NativeLending is BaseLending {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
         uint256 totalBorrowed = 0;
-        uint256 totalDeposited = 0;        
+        uint256 totalSharesBorrowed = 0;
+        uint256 totalCollateral = 0;        
         IERC20 stakingToken = IERC20(minter.stakingToken());
         stakingToken.approve(address(collateral), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
             require(maxBorrow > 0, "NoMoreBorrow");
-            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 debtShares = _borrow(maxBorrow, msg.sender, address(this));
             uint256 minted = minter.depositOrigin{value: maxBorrow}(address(this));
             uint256 shares = collateral.deposit(minted, address(this));
             _afterCollateralDeposit(shares, msg.sender);
             totalBorrowed += maxBorrow;
-            totalDeposited += shares;
+            totalSharesBorrowed += debtShares;
+            totalCollateral += shares;
         }
         stakingToken.approve(address(collateral), 0);
-        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
+        emit Leverage(msg.sender, totalBorrowed, totalSharesBorrowed, totalCollateral);
     }
 }
 
@@ -1836,23 +1840,25 @@ abstract contract ERC20Lending is BaseLending {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
         uint256 totalBorrowed = 0;
-        uint256 totalDeposited = 0;        
+        uint256 totalSharesBorrowed = 0;
+        uint256 totalCollateral = 0;        
         IERC20 stakingToken = IERC20(minter.stakingToken());
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
             require(maxBorrow > 0, "NoMoreBorrow");
-            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 debtShares = _borrow(maxBorrow, msg.sender, address(this));
             uint256 minted = minter.deposit(maxBorrow, address(this));
             uint256 shares = collateral.deposit(minted, address(this));
             _afterCollateralDeposit(shares, msg.sender);
             totalBorrowed += maxBorrow;
-            totalDeposited += shares;
+            totalSharesBorrowed += debtShares;
+            totalCollateral += shares;
         }
         stakingToken.approve(address(collateral), 0);
         asset.approve(address(minter), 0);
-        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
+        emit Leverage(msg.sender, totalBorrowed, totalSharesBorrowed, totalCollateral);
     }
 
     /**
@@ -1863,22 +1869,24 @@ abstract contract ERC20Lending is BaseLending {
         _updateInterest();
         require(steps > 0 && steps <= 50, "InvalidSteps");
         uint256 totalBorrowed = 0;
-        uint256 totalDeposited = 0;        
+        uint256 totalSharesBorrowed = 0;
+        uint256 totalCollateral = 0;        
         IERC20 stakingToken = IERC20(minter.stakingToken());
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
             require(maxBorrow > 0, "NoMoreBorrow");
-            _borrow(maxBorrow, msg.sender, address(this));
+            uint256 debtShares = _borrow(maxBorrow, msg.sender, address(this));
             uint256 minted = minter.depositOrigin(maxBorrow, address(this));
             uint256 shares = collateral.deposit(minted, address(this));
             _afterCollateralDeposit(shares, msg.sender);
             totalBorrowed += maxBorrow;
-            totalDeposited += shares;
+            totalSharesBorrowed += debtShares;
+            totalCollateral += shares;
         }
         stakingToken.approve(address(collateral), 0);
         asset.approve(address(minter), 0);
-        emit Leverage(msg.sender, totalBorrowed, totalDeposited);
+        emit Leverage(msg.sender, totalBorrowed, totalSharesBorrowed, totalCollateral);
     }
 }
