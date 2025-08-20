@@ -8,6 +8,7 @@ interface IERC20 {
     function mint(address to, uint256 amount) external;  
     function burn(uint256 amount) external; 
     function transferOwnership(address newOwner) external;
+    function totalSupply() external view returns (uint256);
 }
 
 /**
@@ -1924,7 +1925,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     event Mint(address indexed caller, address indexed receiver, uint256 amount);
 
     // placeholder function, must be overridden by child contracts
-    function _beforeMint() internal virtual {}
+    function _beforeMint(uint256 /*amount*/) internal virtual {}
 
     function getVersion() public view virtual returns (string memory) {
         return string(abi.encodePacked(VERSION, ":", MINTER_TYPE));
@@ -1955,7 +1956,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     }
 
     function mint(uint256 amount, address receiver) public onlyOwner {
-        _beforeMint();
+        _beforeMint(amount);
         stakingToken.mint(receiver, amount);
         emit Mint(msg.sender, receiver, amount);
     }
