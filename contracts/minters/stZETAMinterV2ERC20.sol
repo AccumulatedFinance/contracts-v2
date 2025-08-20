@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.4;
 
-import "../Minter.sol";
+import "../MinterV2.sol";
 
 interface IZetaInterfaces {
     /**
@@ -45,10 +45,19 @@ contract stZETAMinterERC20 is ERC20Minter {
     }
 
     event UpdateDestination(address _destination);
+    event UpdateConnector(address _connector);
+    event Bridge(uint256 _amount);
 
     function updateDestination(address newDestination) public onlyOwner {
         destination = newDestination;
         emit UpdateDestination(newDestination);
+    }
+
+    function updateConnector(address newConnector) public onlyOwner {
+        connector = IZetaConnector(newConnector);
+        // Grant approval for the new connector to spend baseToken
+        baseToken.approve(newConnector, type(uint256).max);
+        emit UpdateConnector(newConnector);
     }
 
     function deposit(uint256 amount, address receiver) public override nonReentrant {
@@ -56,8 +65,16 @@ contract stZETAMinterERC20 is ERC20Minter {
         uint256 mintAmount = previewDeposit(amount);
         require(mintAmount > 0, "ZeroMintAmount");
         baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
+        stakingToken.mint(receiver, mintAmount);
+        emit Deposit(address(msg.sender), receiver, amount);
+    }
+
+    function bridge(uint256 amount) public onlyOwner {
+        require(amount > 0, "ZeroBridgeAmount");
+        require(destination != address(0), "InvalidDestination");
+        // Send the specified amount to the destination chain via the connector
         IZetaInterfaces.SendInput memory sendInput = IZetaInterfaces.SendInput({
-            destinationChainId: 7000,
+            destinationChainId: 7001,
             destinationAddress: abi.encodePacked(destination),
             destinationGasLimit: 5000000,
             message: abi.encodePacked(""),
@@ -65,8 +82,7 @@ contract stZETAMinterERC20 is ERC20Minter {
             zetaParams: abi.encodePacked("")
         });
         connector.send(sendInput);
-        stakingToken.mint(receiver, mintAmount);
-        emit Deposit(address(msg.sender), receiver, amount);
+        emit Bridge(amount);
     }
 
 }

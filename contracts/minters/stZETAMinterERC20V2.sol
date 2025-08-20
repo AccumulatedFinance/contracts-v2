@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.4;
 
-import "../Minter.sol";
+import "../MinterV2.sol";
 
 struct RevertOptions {
     address revertAddress;
@@ -15,7 +15,7 @@ interface IZetaGateway {
     function deposit(address receiver, uint256 amount, address asset, RevertOptions calldata revertOptions) external;
 }
 
-contract stZETAMinterERC20Gateway is ERC20Minter {
+contract stZETAMinterERC20V2 is ERC20Minter {
 
     using SafeTransferLib for IERC20;
 
@@ -33,27 +33,24 @@ contract stZETAMinterERC20Gateway is ERC20Minter {
     }
 
     event UpdateDestination(address _destination);
+    event Bridge(uint256 _amount);
 
     function updateDestination(address newDestination) public onlyOwner {
         destination = newDestination;
         emit UpdateDestination(newDestination);
     }
 
-    function deposit(uint256 amount, address receiver) public override nonReentrant {
-        require(amount > 0, "ZeroDeposit");
-        uint256 mintAmount = previewDeposit(amount);
-        require(mintAmount > 0, "ZeroMintAmount");
-        baseToken.safeTransferFrom(address(msg.sender), address(this), amount);
+    function bridge(uint256 amount) public onlyOwner {
+        require(amount > 0, "ZeroBridge");
         RevertOptions memory revertOptions = RevertOptions({
             revertAddress: address(this),
             callOnRevert: false,
-            abortAddress: destination,
+            abortAddress: address(0),
             revertMessage: abi.encodePacked(""),
-            onRevertGasLimit: 5000000
+            onRevertGasLimit: 7000000
         });
         gateway.deposit(destination, amount, address(baseToken), revertOptions);
-        stakingToken.mint(receiver, mintAmount);
-        emit Deposit(address(msg.sender), receiver, amount);
+        emit Bridge(amount);
     }
 
 }

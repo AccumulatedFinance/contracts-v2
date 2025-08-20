@@ -1,2 +1,29 @@
 .DS_Store
-**/artifacts/
+.states
+.vscode
+
+# Node modules
+/node_modules
+
+# Compilation output
+/dist
+
+# pnpm deploy output
+/bundle
+
+# Hardhat Build Artifacts
+/artifacts
+/contracts/artifacts
+/contracts/lending/artifacts
+/contracts/minters/artifacts
+/contracts/staking/artifacts
+/contracts/tokens/artifacts
+
+# Hardhat compilation (v2) support directory
+/cache
+
+# Typechain output
+/types
+
+# Hardhat coverage reports
+/coverage

@@ -2124,7 +2124,7 @@ abstract contract ERC20Permit is ERC20, IERC20Permit, EIP712, Nonces {
     }
 }
 
-contract stART is ERC20, ERC20Burnable, Pausable, Ownable, ERC20Permit {
+contract rstAUR is ERC20, ERC20Burnable, Pausable, Ownable, ERC20Permit {
     constructor(
         string memory name,
         string memory symbol,
