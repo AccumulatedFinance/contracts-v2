@@ -1903,7 +1903,7 @@ abstract contract ERC721Enumerable is ERC721, IERC721Enumerable {
 // BaseMinter
 abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
-    string public constant VERSION = "v2.0.2";
+    string public constant VERSION = "v2.0.3";
     string public MINTER_TYPE = "base";
 
     uint256 public depositFee = 0; // possible fee to cover bridging costs
@@ -1922,6 +1922,9 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     event UpdateMinDeposit(uint256 _minDeposit);
     event TransferStakingTokenOwnership(address indexed _newOwner);
     event Mint(address indexed caller, address indexed receiver, uint256 amount);
+
+    // placeholder function, must be overridden by child contracts
+    function _beforeMint() internal virtual {}
 
     function getVersion() public view virtual returns (string memory) {
         return string(abi.encodePacked(VERSION, ":", MINTER_TYPE));
@@ -1952,6 +1955,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     }
 
     function mint(uint256 amount, address receiver) public onlyOwner {
+        _beforeMint();
         stakingToken.mint(receiver, amount);
         emit Mint(msg.sender, receiver, amount);
     }
