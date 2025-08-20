@@ -14,9 +14,51 @@ interface IValidatorShare {
 
 contract stKUBMinterV203 is NativeMinterWithdrawal {
 
+    address[] private allDelegations;
+
     string public BASE_URI = "https://api.accumulated.finance/v1/nft";
 
     constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstKUB", "unstKUB", BASE_URI) {
+    }
+
+    function _beforeMint(uint256 amount) internal override {
+
+        uint256 totalSupply = stakingToken.totalSupply();
+        uint256 totalAssets = address(this).balance;
+
+        for (uint256 i = 0; i < allDelegations.length; i++) {
+            address delegation = allDelegations[i];
+
+            // Base ERC20 balance
+            uint256 balance = IValidatorShare(delegation).balanceOf(address(this));
+
+            // Try getLiquidRewards(address)
+            (bool success1, bytes memory data1) = delegation.call(
+                abi.encodeWithSignature("getLiquidRewards(address)", address(this))
+            );
+
+            if (success1 && data1.length >= 32) {
+                uint256 liquidRewards = abi.decode(data1, (uint256));
+                totalAssets += balance + liquidRewards;
+                continue; // no need to check unclaimed if liquid worked
+            }
+
+            // Otherwise, try getUnclaimedRewards(address)
+            (bool success2, bytes memory data2) = delegation.call(
+                abi.encodeWithSignature("getUnclaimedRewards(address)", address(this))
+            );
+
+            if (success2 && data2.length >= 32) {
+                uint256 unclaimedRewards = abi.decode(data2, (uint256));
+                totalAssets += balance + unclaimedRewards;
+            } else {
+                // fallback: only balance if neither reward function exists
+                totalAssets += balance;
+            }
+        }
+        
+        require(totalSupply + amount <= totalAssets, "MintAmountExceeded");
+
     }
 
     // Delegate tokens to a specific validator
@@ -25,14 +67,38 @@ contract stKUBMinterV203 is NativeMinterWithdrawal {
         require(address(this).balance >= amount, "Insufficient contract balance");
         // Call the validator's delegate function and forward KUB
         IValidatorShare(validator).delegate{value: amount}();
+
+         // Add validator to allDelegations if not already there
+        bool exists = false;
+        for (uint256 i = 0; i < allDelegations.length; i++) {
+            if (allDelegations[i] == validator) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            allDelegations.push(validator);
+        }
     }
 
     // Undelegate tokens from a specific validator
     function undelegate(address validator, uint256 amount) external onlyOwner {
         require(amount > 0, "Amount must be greater than 0");
-        require(getDelegatedAmount(validator) >= amount, "Insufficient delegated amount");
+        uint256 delegated = getDelegatedAmount(validator);
+        require(delegated >= amount, "Insufficient delegated amount");
         // Call the validator's undelegate function
         IValidatorShare(validator).undelegate(amount);
+
+        // Remove validator if all tokens are unstaked
+        if (amount == delegated) {
+            for (uint256 i = 0; i < allDelegations.length; i++) {
+                if (allDelegations[i] == validator) {
+                    allDelegations[i] = allDelegations[allDelegations.length - 1]; // swap & pop
+                    allDelegations.pop();
+                    break;
+                }
+            }
+        }
     }
 
     // Claim rewards from a specific validator
