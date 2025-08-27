@@ -61,11 +61,14 @@ contract stKUBMinterV203 is NativeMinterWithdrawal {
 
     }
 
+    function _areEqual(address a, address b) internal pure returns (bool) {
+        return a == b;
+    }
+
     function _addDelegation(address validator) internal {
-        // Prevent duplicates
         for (uint256 i = 0; i < allDelegations.length; i++) {
-            if (allDelegations[i] == validator) {
-                return;
+            if (_areEqual(allDelegations[i], validator)) {
+                return; // already exists
             }
         }
         allDelegations.push(validator);
@@ -74,10 +77,10 @@ contract stKUBMinterV203 is NativeMinterWithdrawal {
     function _removeDelegation(address validator) internal {
         uint256 len = allDelegations.length;
         for (uint256 i = 0; i < len; i++) {
-            if (allDelegations[i] == validator) {
-                allDelegations[i] = allDelegations[len - 1]; // swap & pop
+            if (_areEqual(allDelegations[i], validator)) {
+                allDelegations[i] = allDelegations[len - 1];
                 allDelegations.pop();
-                return;
+                break;
             }
         }
     }
