@@ -282,8 +282,6 @@ interface IStaking {
 
 contract stZETAMinterV203 is NativeMinterWithdrawal {
 
-    string[] private allDelegations;
-
     address constant STAKING_CONTRACT = 0x0000000000000000000000000000000000000800;
     IStaking private staking = IStaking(STAKING_CONTRACT);
 
@@ -292,72 +290,26 @@ contract stZETAMinterV203 is NativeMinterWithdrawal {
     constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstZETA", "unstZETA", BASE_URI) {
     }
 
-    function _areEqual(string memory a, string memory b) internal pure returns (bool) {
-        return keccak256(bytes(a)) == keccak256(bytes(b));
-    }
-
-    function _addDelegation(string memory validator) internal {
-        for (uint256 i = 0; i < allDelegations.length; i++) {
-            if (_areEqual(allDelegations[i], validator)) {
-                return; // already exists
-            }
-        }
-        allDelegations.push(validator);
-    }
-
-    function _removeDelegation(string memory validator) internal {
-        uint256 len = allDelegations.length;
-        for (uint256 i = 0; i < len; i++) {
-            if (_areEqual(allDelegations[i], validator)) {
-                allDelegations[i] = allDelegations[len - 1];
-                allDelegations.pop();
-                break;
-            }
-        }
-    }
-
     // Delegate tokens to a specific validator
     function delegate(string memory validator, uint256 amount) external onlyOwner {
         require(amount > 0, "Amount must be greater than 0");
         require(address(this).balance >= amount, "Insufficient contract balance");
         bool success = staking.delegate(address(this), validator, amount);
         require(success, "Delegate failed");
-        // Manage delegation list
-        _addDelegation(validator);
     }
 
     // Undelegate tokens from a specific validator
     function undelegate(string memory validator, uint256 amount) external onlyOwner {
         require(amount > 0, "Amount must be greater than 0");
-        uint256 delegated = staking.delegation(address(this), validator);
-        require(delegated >= amount, "Insufficient delegated amount");
         bool success = staking.undelegate(address(this), validator, amount);
         require(success, "Undelegate failed");
-        // Remove validator if all tokens are unstaked
-        if (amount == delegated) {
-            _removeDelegation(validator);
-        }
     }
 
     // Redelegate tokens from one validator to another
     function redelegate(string memory validatorSrc, string memory validatorDst, uint256 amount) external onlyOwner {
         require(amount > 0, "Amount must be greater than 0");
-        uint256 delegated = staking.delegation(address(this), validatorSrc);
-        require(delegated >= amount, "Insufficient delegated amount");
         bool success = staking.redelegate(address(this), validatorSrc, validatorDst, amount);
         require(success, "Redelegate failed");
-        // Manage delegation list
-        if (amount == delegated) {
-            _removeDelegation(validatorSrc);
-        }
-        _addDelegation(validatorDst);
-    }
-
-    // Read how much the contract has delegated to a specific validator
-    function getDelegation(string calldata validator) public view returns (uint256) {
-        // Call staking precompile
-        uint256 delegated = staking.delegation(address(this), validator);
-        return delegated;
     }
 
     // Disable withdrawals
