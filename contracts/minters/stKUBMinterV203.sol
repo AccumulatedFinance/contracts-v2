@@ -102,7 +102,6 @@ contract stKUBMinterV203 is NativeMinterWithdrawal {
         require(delegated >= amount, "Insufficient delegated amount");
         // Call the validator's undelegate function
         IValidatorShare(validator).undelegate(amount);
-
         // Remove validator if all tokens are unstaked
         if (amount == delegated) {
             _removeDelegation(validator);
