@@ -353,4 +353,9 @@ contract stZETAMinterV203 is NativeMinterWithdrawal {
         _addDelegation(validatorDst);
     }
 
+    // Disable withdrawals
+    function withdraw(uint256 /*amount*/, address /* receiver */) public view onlyOwner override {
+        revert(string(abi.encodePacked("Withdrawals disabled")));
+    }
+
 }
