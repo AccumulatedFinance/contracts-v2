@@ -61,24 +61,35 @@ contract stKUBMinterV203 is NativeMinterWithdrawal {
 
     }
 
+    function _addDelegation(address validator) internal {
+        // Prevent duplicates
+        for (uint256 i = 0; i < allDelegations.length; i++) {
+            if (allDelegations[i] == validator) {
+                return;
+            }
+        }
+        allDelegations.push(validator);
+    }
+
+    function _removeDelegation(address validator) internal {
+        uint256 len = allDelegations.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (allDelegations[i] == validator) {
+                allDelegations[i] = allDelegations[len - 1]; // swap & pop
+                allDelegations.pop();
+                return;
+            }
+        }
+    }
+
     // Delegate tokens to a specific validator
     function delegate(address validator, uint256 amount) external onlyOwner {
         require(amount > 0, "Amount must be greater than 0");
         require(address(this).balance >= amount, "Insufficient contract balance");
         // Call the validator's delegate function and forward KUB
         IValidatorShare(validator).delegate{value: amount}();
-
-         // Add validator to allDelegations if not already there
-        bool exists = false;
-        for (uint256 i = 0; i < allDelegations.length; i++) {
-            if (allDelegations[i] == validator) {
-                exists = true;
-                break;
-            }
-        }
-        if (!exists) {
-            allDelegations.push(validator);
-        }
+        // Manage delegation list
+        _addDelegation(validator);
     }
 
     // Undelegate tokens from a specific validator
@@ -91,13 +102,7 @@ contract stKUBMinterV203 is NativeMinterWithdrawal {
 
         // Remove validator if all tokens are unstaked
         if (amount == delegated) {
-            for (uint256 i = 0; i < allDelegations.length; i++) {
-                if (allDelegations[i] == validator) {
-                    allDelegations[i] = allDelegations[allDelegations.length - 1]; // swap & pop
-                    allDelegations.pop();
-                    break;
-                }
-            }
+            _removeDelegation(validator);
         }
     }
 
