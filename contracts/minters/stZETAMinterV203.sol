@@ -320,7 +320,7 @@ contract stZETAMinterV203 is NativeMinterWithdrawal {
     function delegate(string memory validator, uint256 amount) external onlyOwner {
         require(amount > 0, "Amount must be greater than 0");
         require(address(this).balance >= amount, "Insufficient contract balance");
-        bool success = staking.delegate{value: amount}(address(this), validator, amount);
+        bool success = staking.delegate(address(this), validator, amount);
         require(success, "Delegate failed");
         // Manage delegation list
         _addDelegation(validator);
