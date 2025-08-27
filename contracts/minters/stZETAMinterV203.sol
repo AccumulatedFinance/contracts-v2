@@ -353,6 +353,13 @@ contract stZETAMinterV203 is NativeMinterWithdrawal {
         _addDelegation(validatorDst);
     }
 
+    // Read how much the contract has delegated to a specific validator
+    function getDelegation(string calldata validator) public view returns (uint256) {
+        // Call staking precompile
+        uint256 delegated = staking.delegation(address(this), validator);
+        return delegated;
+    }
+
     // Disable withdrawals
     function withdraw(uint256 /*amount*/, address /* receiver */) public view onlyOwner override {
         revert(string(abi.encodePacked("Withdrawals disabled")));
