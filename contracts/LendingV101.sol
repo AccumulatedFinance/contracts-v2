@@ -1513,9 +1513,10 @@ abstract contract NativeLending is BaseLending {
         uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
         bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
         uint256 totalValueToSeize = debtToCover + bonusAmount;
-        require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
         uint256 collateralSharesToSeize = (totalValueToSeize * PPS_SCALE_FACTOR) / collateralPricePerShare;
-        require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
+        if (collateralSharesToSeize > userCollateral[user]) {
+            collateralSharesToSeize = userCollateral[user];
+        }
         require(msg.value >= debtToCover, "InsufficientAmount");
         if (msg.value > debtToCover) {
             uint256 refund = msg.value - debtToCover;
@@ -1777,9 +1778,10 @@ abstract contract ERC20Lending is BaseLending {
         uint256 maxBonus = collateralValue > debtToCover ? collateralValue - debtToCover : 0;
         bonusAmount = bonusAmount > maxBonus ? maxBonus : bonusAmount;
         uint256 totalValueToSeize = debtToCover + bonusAmount;
-        require(totalValueToSeize <= collateralValue, "InsufficientCollateralValue");
         uint256 collateralSharesToSeize = (totalValueToSeize * PPS_SCALE_FACTOR) / collateralPricePerShare;
-        require(collateralSharesToSeize <= userCollateral[user], "InsufficientCollateralShares");
+        if (collateralSharesToSeize > userCollateral[user]) {
+            collateralSharesToSeize = userCollateral[user];
+        }
         require(amount >= debtToCover, "InsufficientAmount");
         if (amount > debtToCover) {
             uint256 refund = amount - debtToCover;
