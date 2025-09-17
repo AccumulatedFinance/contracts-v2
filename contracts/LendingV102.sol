@@ -798,7 +798,6 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     mapping(address => uint256) internal userDebtShares; // User's debt shares
 
     uint256 internal debtPricePerShare = 10**18; // Price per debt share, increases with interest
-    uint256 public scaleFactor; // Scaling factor for pool decimals
     uint256 public constant PPS_SCALE_FACTOR = 10**18; // Scaling factor for pricePerShare (18 decimals)
     uint256 public constant SECONDS_PER_YEAR = 31_536_000; // Seconds in a year
     uint256 public lastUpdateTimestamp; // Last interest update timestamp
@@ -870,9 +869,28 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     {
         collateral = _collateralToken;
         minter = IMinter(_lsdMinter);
-        scaleFactor = 10**_collateralToken.decimals();
         lastUpdateTimestamp = block.timestamp;
         liquidator = msg.sender;
+    }
+
+    /**
+     * @notice Safe multiplication and division with overflow protection
+     */
+    function _mulDiv(
+        uint256 a,
+        uint256 b,
+        uint256 denominator
+        ) internal pure returns (uint256 result) {
+        if (a == 0 || b == 0) return 0;
+        if (denominator == 0) revert("DivisionByZero");
+
+        // Check for potential overflow
+        if (a > 340282366920938463463374607431768211455 || b > 340282366920938463463374607431768211455) {
+            revert("ValueTooLargeForSafeCalculation");
+        }
+
+        uint256 product = a * b;
+        return product / denominator;
     }
 
     /**
@@ -893,9 +911,11 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;
         if (timeElapsed == 0) return 0;
         uint256 borrowingRate = getBorrowingRate();
-        uint256 scaledRate = (borrowingRate * scaleFactor) / BPS_DENOMINATOR;
-        uint256 debtValue = (debtShares * debtPricePerShare) / PPS_SCALE_FACTOR;
-        return (debtValue * scaledRate * timeElapsed) / (SECONDS_PER_YEAR * scaleFactor);
+        uint256 debtValue = _mulDiv(debtShares, debtPricePerShare, PPS_SCALE_FACTOR);
+        uint256 denominator = BPS_DENOMINATOR * SECONDS_PER_YEAR;
+        uint256 scaledNumerator = debtValue * borrowingRate * timeElapsed * PPS_SCALE_FACTOR;
+        uint256 scaledDenominator = denominator * PPS_SCALE_FACTOR;
+        return _mulDiv(scaledNumerator, 1, scaledDenominator);
     }
 
     /**
