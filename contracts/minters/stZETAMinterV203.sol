@@ -431,24 +431,18 @@ contract stZETAMinterV203 is NativeMinterWithdrawal, StakingAdmin {
     // Undelegate tokens from a specific validator
     function undelegate(string memory validator, uint256 amount) external onlyOwner {
         require(amount > 0, "ZeroAmount");
-        (uint256 shares, ) = staking.delegation(address(this), validator);
-        require(shares >= amount, "NotEnoughTokensDelegated");
         staking.undelegate(address(this), validator, amount);
     }
 
     // Redelegate tokens from one validator to another
     function redelegate(string memory validatorSrc, string memory validatorDst, uint256 amount) external onlyOwner {
         require(amount > 0, "ZeroAmount");
-        (uint256 shares, ) = staking.delegation(address(this), validatorSrc);
-        require(shares >= amount, "NotEnoughTokensDelegated");
         staking.redelegate(address(this), validatorSrc, validatorDst, amount);
     }
 
     // Undelegate tokens from a specific validator by staking admin
     function emergencyUndelegate(string memory validator, uint256 amount) external onlyStakingAdmin {
         require(amount > 0, "ZeroAmount");
-        (uint256 shares, ) = staking.delegation(address(this), validator);
-        require(shares >= amount, "NotEnoughTokensDelegated");
         staking.undelegate(address(this), validator, amount);
     }
 
