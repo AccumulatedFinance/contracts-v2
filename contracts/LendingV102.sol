@@ -808,21 +808,21 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
     uint256 public ltv = 9500; // Default 95%, in bps
 
     // Borrowing rate params in bps
-    uint256 public minBorrowingRate = 0;
-    uint256 public vertexBorrowingRate = 800;
-    uint256 public maxBorrowingRate = 2000;
-    uint256 public vertexUtilization = 9000;
+    uint256 public minBorrowingRate = 0; // 0% = 0 bps
+    uint256 public vertexBorrowingRate = 100; // 1% = 100 bps
+    uint256 public maxBorrowingRate = 400; // 4% = 400 bps
+    uint256 public vertexUtilization = 9000; // 90% = 9000 bps
 
     // Stability fee
     uint256 public stabilityFees;
 
     // Stability fee params
-    uint256 public constant MAX_STABILITY_FEE = 4500;
-    uint256 public stabilityFee = 2000;
+    uint256 public constant MAX_STABILITY_FEE = 4500; // 45% = 4500 bps
+    uint256 public stabilityFee = 3000; // 30% = 3000 bps
 
     // Liquidation params
     address private liquidator; // Authorized liquidator address
-    uint256 public liquidationBonus = 800; // 8% = 800 bps
+    uint256 public liquidationBonus = 200; // 2% = 200 bps
     uint256 public constant MAX_LIQUIDATION_BONUS = 1000; // 10% = 1000 bps
     uint256 public constant LIQUIDATION_THRESHOLD = 1e18; // Health factor < 1
 
