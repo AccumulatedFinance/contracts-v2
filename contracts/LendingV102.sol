@@ -913,9 +913,8 @@ abstract contract BaseLending is Ownable, ReentrancyGuard, ERC20 {
         uint256 borrowingRate = getBorrowingRate();
         uint256 debtValue = _mulDiv(debtShares, debtPricePerShare, PPS_SCALE_FACTOR);
         uint256 denominator = BPS_DENOMINATOR * SECONDS_PER_YEAR;
-        uint256 scaledNumerator = debtValue * borrowingRate * timeElapsed * PPS_SCALE_FACTOR;
-        uint256 scaledDenominator = denominator * PPS_SCALE_FACTOR;
-        return _mulDiv(scaledNumerator, 1, scaledDenominator);
+        uint256 numerator = debtValue * borrowingRate * timeElapsed;
+        return _mulDiv(numerator, 1, denominator);
     }
 
     /**
