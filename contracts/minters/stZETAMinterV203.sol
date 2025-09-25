@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../MinterV203.sol";
+import "../MinterExtStakingAdmin.sol";
 
 /// @dev Allocation represents a single allocation for an IBC fungible token transfer.
 struct ICS20Allocation {
@@ -410,33 +411,44 @@ interface StakingI {
     );
 }
 
-contract stZETAMinterV203 is NativeMinterWithdrawal {
+contract stZETAMinterV203 is NativeMinterWithdrawal, StakingAdmin {
 
     address constant STAKING_CONTRACT = 0x0000000000000000000000000000000000000800;
     StakingI private staking = StakingI(STAKING_CONTRACT);
 
     string public BASE_URI = "https://api.accumulated.finance/v1/nft";
 
-    constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstZETA", "unstZETA", BASE_URI) {
+    constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstZETA", "unstZETA", BASE_URI) StakingAdmin() {
     }
 
     // Delegate tokens to a specific validator
     function delegate(string memory validator, uint256 amount) external onlyOwner {
-        require(amount > 0, "Amount must be greater than 0");
-        require(address(this).balance >= amount, "Insufficient contract balance");
+        require(amount > 0, "ZeroAmount");
+        require(address(this).balance >= amount, "NotEnoughTokens");
         staking.delegate(address(this), validator, amount);
     }
 
     // Undelegate tokens from a specific validator
     function undelegate(string memory validator, uint256 amount) external onlyOwner {
-        require(amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "ZeroAmount");
         staking.undelegate(address(this), validator, amount);
     }
 
     // Redelegate tokens from one validator to another
     function redelegate(string memory validatorSrc, string memory validatorDst, uint256 amount) external onlyOwner {
-        require(amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "ZeroAmount");
         staking.redelegate(address(this), validatorSrc, validatorDst, amount);
+    }
+
+    // Undelegate tokens from a specific validator by staking admin
+    function emergencyUndelegate(string memory validator, uint256 amount) external onlyStakingAdmin {
+        require(amount > 0, "ZeroAmount");
+        staking.undelegate(address(this), validator, amount);
+    }
+
+    // Returns number of shares delegated to a specific validator
+    function delegation(string memory validator) public view returns (uint256 shares) {
+        (shares, ) = staking.delegation(address(this), validator);
     }
 
     // Disable withdrawals
