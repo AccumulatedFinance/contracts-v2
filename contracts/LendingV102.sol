@@ -1597,7 +1597,7 @@ abstract contract NativeLending is BaseLending {
         require(steps > 0 && steps <= 50, "InvalidSteps");
         uint256 totalBorrowed = 0;
         uint256 totalSharesBorrowed = 0;
-        uint256 totalCollateral = 0;        
+        uint256 totalCollateral = 0;
         IERC20 stakingToken = IERC20(minter.stakingToken());
         require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
@@ -1625,8 +1625,9 @@ abstract contract NativeLending is BaseLending {
         require(steps > 0 && steps <= 50, "InvalidSteps");
         uint256 totalBorrowed = 0;
         uint256 totalSharesBorrowed = 0;
-        uint256 totalCollateral = 0;        
+        uint256 totalCollateral = 0;
         IERC20 stakingToken = IERC20(minter.stakingToken());
+        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
             uint256 maxBorrow = getUserMaxBorrow(msg.sender);
@@ -1720,7 +1721,7 @@ abstract contract ERC20Lending is BaseLending {
         require(totalAssets + amount <= assetsCap, "ExceedsAssetsCap");
         uint256 baseTokens = (amount * PPS_SCALE_FACTOR) / getPricePerShare();
         require(baseTokens > 0, "InsufficientShares");
-        asset.safeTransferFrom(address(msg.sender), address(this), amount);
+        asset.safeTransferFrom(msg.sender, address(this), amount);
         totalAssets += amount;
         _mint(receiver, baseTokens);
         emit Deposit(msg.sender, receiver, amount, baseTokens);
@@ -1772,9 +1773,6 @@ abstract contract ERC20Lending is BaseLending {
         userDebtShares[msg.sender] -= sharesRepaid;
         totalDebtShares -= sharesRepaid;
         asset.safeTransferFrom(msg.sender, address(this), repayment);
-        if (amount > totalDebtValue) {
-            asset.safeTransfer(msg.sender, amount - totalDebtValue);
-        }
         emit Repay(msg.sender, repayment, sharesRepaid);
     }
 
@@ -1788,7 +1786,6 @@ abstract contract ERC20Lending is BaseLending {
         _updateInterest();
         require(isLiquidatable(user), "PositionNotLiquidatable");
         require(debtSharesToCover > 0 && debtSharesToCover <= userDebtShares[user], "InvalidDebtSharesAmount");
-        asset.safeTransferFrom(address(msg.sender), address(this), amount);
         uint256 debtToCover = (debtSharesToCover * getPricePerShareDebt()) / PPS_SCALE_FACTOR;
         uint256 collateralPricePerShare = collateral.pricePerShare();
         require(collateralPricePerShare > 0, "InvalidPrice");
@@ -1802,10 +1799,7 @@ abstract contract ERC20Lending is BaseLending {
             collateralSharesToSeize = userCollateral[user];
         }
         require(amount >= debtToCover, "InsufficientAmount");
-        if (amount > debtToCover) {
-            uint256 refund = amount - debtToCover;
-            asset.safeTransfer(msg.sender, refund);
-        }
+        asset.safeTransferFrom(msg.sender, address(this), debtToCover);
         userDebtShares[user] -= debtSharesToCover;
         totalDebtShares -= debtSharesToCover;
         userCollateral[user] -= collateralSharesToSeize;
@@ -1864,6 +1858,7 @@ abstract contract ERC20Lending is BaseLending {
         uint256 totalSharesBorrowed = 0;
         uint256 totalCollateral = 0;        
         IERC20 stakingToken = IERC20(minter.stakingToken());
+        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
@@ -1893,6 +1888,7 @@ abstract contract ERC20Lending is BaseLending {
         uint256 totalSharesBorrowed = 0;
         uint256 totalCollateral = 0;        
         IERC20 stakingToken = IERC20(minter.stakingToken());
+        require(address(stakingToken) == collateral.asset(), "InvalidStakingToken");
         stakingToken.approve(address(collateral), type(uint256).max);
         asset.approve(address(minter), type(uint256).max);
         for (uint256 i = 0; i < steps; i++) {
