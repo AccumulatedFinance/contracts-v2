@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../MinterV203.sol";
+import "../MinterExtStakingAdmin.sol";
 
 interface IValidatorShare {
     function delegate() external payable;
@@ -12,7 +13,7 @@ interface IValidatorShare {
     function balanceOf(address account) external view returns (uint256); // ERC-20 balance function
 }
 
-contract stKUBMinterV203 is NativeMinterWithdrawal {
+contract stKUBMinterV203 is NativeMinterWithdrawal, StakingAdmin {
 
     address[] private allDelegations;
 
@@ -118,6 +119,19 @@ contract stKUBMinterV203 is NativeMinterWithdrawal {
     function getUnclaimedRewards(address validator) external view returns (uint256) {
         // Call the validator's getUnclaimedRewards function
         return IValidatorShare(validator).getUnclaimedRewards(address(this));
+    }
+
+    // Undelegate tokens from a specific validator by staking admin
+    function emergencyUndelegate(address validator, uint256 amount) external onlyStakingAdmin {
+        require(amount > 0, "Amount must be greater than 0");
+        uint256 delegated = getDelegatedAmount(validator);
+        require(delegated >= amount, "Insufficient delegated amount");
+        // Call the validator's undelegate function
+        IValidatorShare(validator).undelegate(amount);
+        // Remove validator if all tokens are unstaked
+        if (amount == delegated) {
+            _removeDelegation(validator);
+        }
     }
 
     // Get unclaimed rewards for a specific validator (new method)
