@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
-import "../MinterV201.sol";
+import "../MinterV203.sol";
 
 library Cosmos {
     struct Coin {
@@ -74,7 +74,7 @@ interface IStakingModule {
 
 }
 
-contract stINJMinterWithdrawal is NativeMinterWithdrawal {
+contract stINJMinterV203 is NativeMinterWithdrawal {
 
     address constant stakingContract = 0x0000000000000000000000000000000000000066;
     IStakingModule public stakingModule;
