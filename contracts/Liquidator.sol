@@ -345,12 +345,12 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
 
     IMinter public immutable minter;
     ILending public immutable lending;
-    IERC4626 public immutable asset;
+    IERC4626 public immutable collateral;
 
     constructor(address _minter, address _lending) {
         minter = IMinter(_minter);
         lending = ILending(_lending);
-        asset = lending.collateral();
+        collateral = lending.collateral();
     }
 
     function executeFlashLoan(address user, uint256 debtSharesToCover, uint256 amount, address receiver) public onlyOwner {
@@ -376,10 +376,13 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
         lending.liquidate{value: amount}(user, debtSharesToCover);
         
         // redeem collateral
-        uint256 shares = IERC20(asset).balanceOf(address(this));
-        uint256 assets = asset.redeem(shares, address(this), address(this));
+        uint256 shares = IERC20(collateral).balanceOf(address(this));
+        uint256 assets = collateral.redeem(shares, address(this), address(this));
+
+        address asset = collateral.asset();
 
         // withdraw from minter
+        IERC20(asset).approve(address(minter), assets);
         uint256 withdrawalId = minter.requestWithdrawal(assets, address(this));
         minter.claimWithdrawal(withdrawalId, address(this));
 

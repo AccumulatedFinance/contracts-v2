@@ -2480,7 +2480,7 @@ abstract contract ERC20Restaking is BaseRestaking {
 }
 
 // FlashLoan extension allows to setup flashloan fees for minter
-abstract contract FlashLoan is BaseMinter {
+abstract contract FlashLoan is BaseMinterWithdrawal {
 
     bytes32 public constant FLASHLOAN_CALLBACK_SUCCESS = keccak256("FLASHLOAN_CALLBACK_SUCCESS");
 
@@ -2540,6 +2540,8 @@ abstract contract NativeFlashLoan is FlashLoan {
         require(amount <= balBefore, "InsufficientLiquidity");
         uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
 
+        uint256 withdrawalIdBefore = nextWithdrawalId;
+
         bytes32 result = IFlashLoanReceiver(receiver).onFlashLoan{value: amount}(
             msg.sender,
             amount,
@@ -2550,7 +2552,18 @@ abstract contract NativeFlashLoan is FlashLoan {
         require(result == FLASHLOAN_CALLBACK_SUCCESS, "BadFlashLoanCallback");
 
         uint256 balAfter = address(this).balance;
-        require(balAfter >= balBefore + fee, "NotRepaid");
+        uint256 claimedDuringFlash = 0;
+        uint256 currentId = nextWithdrawalId;
+
+        // sum claimed amounts from new withdrawals created & claimed in this tx
+        for (uint256 id = withdrawalIdBefore; id < currentId; ++id) {
+            WithdrawalRequest storage req = _withdrawalRequests[id];
+            if (req.claimed) {
+                claimedDuringFlash += req.amount;
+            }
+        }
+
+        require(balAfter + claimedDuringFlash >= balBefore + fee, "NotRepaid");
 
         totalFlashLoanFees += fee;
 
