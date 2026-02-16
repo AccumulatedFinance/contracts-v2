@@ -368,7 +368,7 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
         uint256 fee,
         bytes calldata data
     ) external payable returns (bytes32) {
-        require(initiator == owner(), "BadInitiator");
+        require(initiator == address(this), "BadInitiator");
         require(msg.sender == address(minter), "NotMinter");
 
         // liquidate user
@@ -387,6 +387,7 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
         uint256 repayAmount = amount + fee;
 
         require(availableBalance >= repayAmount, "NotEnoughToRepay");
+
         SafeTransferLib.safeTransferETH(address(minter), repayAmount);
 
         return FLASHLOAN_CALLBACK_SUCCESS;
