@@ -2512,10 +2512,18 @@ abstract contract NativeFlashLoan is FlashLoan {
     );
 
     error FlashLoanActive();
+    error ReentrancyFlash();
 
     modifier notDuringFlashLoan() {
         if (flashLoanActive) revert FlashLoanActive();
         _;
+    }
+
+    modifier nonReentrantFlash() {
+        if (flashLoanActive) revert ReentrancyFlash();
+        flashLoanActive = true;
+        _;
+        flashLoanActive = false;
     }
 
     // -----------------------------
@@ -2525,14 +2533,12 @@ abstract contract NativeFlashLoan is FlashLoan {
         address receiver,
         uint256 amount,
         bytes calldata data
-    ) public virtual nonReentrant returns (bool) {
+    ) public virtual nonReentrantFlash returns (bool) {
 
         uint256 balBefore = address(this).balance;
         require(amount > 0, "ZeroAmount");
         require(amount <= balBefore, "InsufficientLiquidity");
         uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
-
-        flashLoanActive = true;
 
         bytes32 result = IFlashLoanReceiver(receiver).onFlashLoan{value: amount}(
             msg.sender,
@@ -2540,8 +2546,6 @@ abstract contract NativeFlashLoan is FlashLoan {
             fee,
             data
         );
-
-        flashLoanActive = false;
 
         require(result == FLASHLOAN_CALLBACK_SUCCESS, "BadFlashLoanCallback");
 

@@ -392,4 +392,7 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
 
         return FLASHLOAN_CALLBACK_SUCCESS;
     }
+
+    receive() external payable {}
+    
 }
