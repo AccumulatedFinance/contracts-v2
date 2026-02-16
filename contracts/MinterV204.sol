@@ -288,7 +288,7 @@ interface IERC721Enumerable is IERC721 {
 }
 
 interface IFlashLoanReceiver {
-    function requestPayback(
+    function onFlashLoan(
         address initiator,
         uint256 amount,
         uint256 fee,
@@ -2534,7 +2534,7 @@ abstract contract NativeFlashLoan is FlashLoan {
 
         flashLoanActive = true;
 
-        bytes32 result = IFlashLoanReceiver(receiver).requestPayback{value: amount}(
+        bytes32 result = IFlashLoanReceiver(receiver).onFlashLoan{value: amount}(
             msg.sender,
             amount,
             fee,
