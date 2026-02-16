@@ -287,6 +287,15 @@ interface IERC721Enumerable is IERC721 {
     function tokenByIndex(uint256 index) external view returns (uint256);
 }
 
+interface IFlashLoanReceiver {
+    function requestPayback(
+        address initiator,
+        uint256 amount,
+        uint256 fee,
+        bytes calldata data
+    ) external payable returns (bytes32);
+}
+
 /// @notice Safe ETH and ERC20 transfer library that gracefully handles missing return values.
 /// @author Solmate (https://github.com/transmissions11/solmate/blob/main/src/utils/SafeTransferLib.sol)
 /// @dev Use with caution! Some functions in this library knowingly create dirty bits at the destination of the free memory pointer.
@@ -2466,6 +2475,91 @@ abstract contract ERC20Restaking is BaseRestaking {
         require(amount > 0, "ZeroWithdraw");
         originToken.safeTransfer(receiver, amount);
         emit WithdrawOrigin(msg.sender, receiver, amount);
+    }
+
+}
+
+// FlashLoan extension allows to setup flashloan fees for minter
+abstract contract FlashLoan is BaseMinter {
+
+    bytes32 public constant FLASHLOAN_CALLBACK_SUCCESS = keccak256("FLASHLOAN_CALLBACK_SUCCESS");
+
+    uint256 public flashLoanFee = 0;
+    uint256 public constant MAX_FLASHLOAN_FEE = 1000;
+
+    uint256 public totalFlashLoanFees;
+
+    event UpdateFlashLoanFee(uint256 newFee);
+    event CollectFlashLoanFees(address indexed caller, address indexed receiver, uint256 amount);
+
+    function updateFlashLoanFee(uint256 _newFee) public onlyOwner {
+        require(_newFee <= MAX_FLASHLOAN_FEE, ">MaxFlashLoanFee");
+        flashLoanFee = _newFee;
+        emit UpdateFlashLoanFee(_newFee);
+    }
+
+}
+
+abstract contract NativeFlashLoan is FlashLoan {
+
+    bool internal flashLoanActive;
+
+    event UseFlashLoan(
+        address indexed caller,
+        address indexed receiver,
+        uint256 amount,
+        uint256 fee
+    );
+
+    error FlashLoanActive();
+
+    modifier notDuringFlashLoan() {
+        if (flashLoanActive) revert FlashLoanActive();
+        _;
+    }
+
+    // -----------------------------
+    // Flashloan
+    // -----------------------------
+    function flashLoan(
+        address receiver,
+        uint256 amount,
+        bytes calldata data
+    ) public virtual nonReentrant returns (bool) {
+
+        uint256 balBefore = address(this).balance;
+        require(amount > 0, "ZeroAmount");
+        require(amount <= balBefore, "InsufficientLiquidity");
+        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
+
+        flashLoanActive = true;
+
+        bytes32 result = IFlashLoanReceiver(receiver).requestPayback{value: amount}(
+            msg.sender,
+            amount,
+            fee,
+            data
+        );
+
+        flashLoanActive = false;
+
+        require(result == FLASHLOAN_CALLBACK_SUCCESS, "BadFlashLoanCallback");
+
+        uint256 balAfter = address(this).balance;
+        require(balAfter >= balBefore + fee, "NotRepaid");
+
+        totalFlashLoanFees += fee;
+
+        emit UseFlashLoan(msg.sender, receiver, amount, fee);
+        return true;
+    }
+
+    function collectFlashLoanFee(address receiver) public onlyOwner {
+        require(totalFlashLoanFees > 0, "ZeroFees");
+        uint256 feesToCollect = totalFlashLoanFees;
+        totalFlashLoanFees = 0;
+        SafeTransferLib.safeTransferETH(receiver, feesToCollect);
+        emit CollectFlashLoanFees(msg.sender, receiver, feesToCollect);
     }
 
 }
