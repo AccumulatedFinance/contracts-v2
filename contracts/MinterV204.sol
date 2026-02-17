@@ -2394,7 +2394,9 @@ abstract contract BaseRestaking is BaseMinter {
     uint256 public depositOriginFee = 0; // possible fee to cover bridging costs
     uint256 public constant MAX_DEPOSIT_ORIGIN_FEE = 500; // max deposit origin fee 500bp (5%)
 
-    constructor() {}
+    constructor() {
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|rs"));
+    }
 
     event UpdateDepositOriginFee(uint256 _depositOriginFee);
     event UpdateMinDepositOrigin(uint256 _minDeposit);
@@ -2480,17 +2482,39 @@ abstract contract ERC20Restaking is BaseRestaking {
 }
 
 // FlashLoan extension allows to setup flashloan fees for minter
-abstract contract FlashLoan is BaseMinterWithdrawal {
+abstract contract BaseFlashLoan is BaseMinter {
 
     bytes32 public constant FLASHLOAN_CALLBACK_SUCCESS = keccak256("FLASHLOAN_CALLBACK_SUCCESS");
 
+    bool internal flashLoanActive;
+
     uint256 public flashLoanFee = 0;
-    uint256 public constant MAX_FLASHLOAN_FEE = 1000;
+    uint256 public constant MAX_FLASHLOAN_FEE = 1000; // 1000 bps = 10%
 
     uint256 public totalFlashLoanFees;
 
+    constructor() {
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|fl"));
+    }
+
     event UpdateFlashLoanFee(uint256 newFee);
     event CollectFlashLoanFees(address indexed caller, address indexed receiver, uint256 amount);
+
+    event UseFlashLoan(
+        address indexed caller,
+        address indexed receiver,
+        uint256 amount,
+        uint256 fee
+    );
+
+    error ReentrancyFlash();
+
+    modifier nonReentrantFlash() {
+        if (flashLoanActive) revert ReentrancyFlash();
+        flashLoanActive = true;
+        _;
+        flashLoanActive = false;
+    }
 
     function updateFlashLoanFee(uint256 _newFee) public onlyOwner {
         require(_newFee <= MAX_FLASHLOAN_FEE, ">MaxFlashLoanFee");
@@ -2500,30 +2524,10 @@ abstract contract FlashLoan is BaseMinterWithdrawal {
 
 }
 
-abstract contract NativeFlashLoan is FlashLoan {
+abstract contract NativeFlashLoan is BaseFlashLoan, BaseMinterWithdrawal {
 
-    bool internal flashLoanActive;
-
-    event UseFlashLoan(
-        address indexed caller,
-        address indexed receiver,
-        uint256 amount,
-        uint256 fee
-    );
-
-    error FlashLoanActive();
-    error ReentrancyFlash();
-
-    modifier notDuringFlashLoan() {
-        if (flashLoanActive) revert FlashLoanActive();
-        _;
-    }
-
-    modifier nonReentrantFlash() {
-        if (flashLoanActive) revert ReentrancyFlash();
-        flashLoanActive = true;
-        _;
-        flashLoanActive = false;
+    constructor() {
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ":native"));
     }
 
     // -----------------------------
@@ -2535,12 +2539,13 @@ abstract contract NativeFlashLoan is FlashLoan {
         bytes calldata data
     ) public virtual nonReentrantFlash returns (bool) {
 
-        uint256 balBefore = address(this).balance;
-        require(amount > 0, "ZeroAmount");
-        require(amount <= balBefore, "InsufficientLiquidity");
-        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
+        uint256 baseBefore = address(this).balance;
+        uint256 unclaimedBefore = totalUnclaimedWithdrawals;
+        uint256 stBefore = stakingToken.totalSupply();
 
-        uint256 withdrawalIdBefore = nextWithdrawalId;
+        require(amount > 0, "ZeroAmount");
+        require(amount <= baseBefore, "InsufficientLiquidity");
+        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
 
         bytes32 result = IFlashLoanReceiver(receiver).onFlashLoan{value: amount}(
             msg.sender,
@@ -2551,19 +2556,12 @@ abstract contract NativeFlashLoan is FlashLoan {
 
         require(result == FLASHLOAN_CALLBACK_SUCCESS, "BadFlashLoanCallback");
 
-        uint256 balAfter = address(this).balance;
-        uint256 claimedDuringFlash = 0;
-        uint256 currentId = nextWithdrawalId;
+        uint256 baseAfter = address(this).balance;
+        uint256 unclaimedAfter = totalUnclaimedWithdrawals;
+        uint256 stAfter = stakingToken.totalSupply();
 
-        // sum claimed amounts from new withdrawals created & claimed in this tx
-        for (uint256 id = withdrawalIdBefore; id < currentId; ++id) {
-            WithdrawalRequest storage req = _withdrawalRequests[id];
-            if (req.claimed) {
-                claimedDuringFlash += req.amount;
-            }
-        }
-
-        require(balAfter + claimedDuringFlash >= balBefore + fee, "NotRepaid");
+        // baseAfter - unclaimedAfter - stAfter >= baseBefore - unclaimedBefore - stBefore
+        require(baseAfter + unclaimedBefore + stBefore >= baseBefore + unclaimedAfter + stAfter + fee, "NotRepaid");
 
         totalFlashLoanFees += fee;
 

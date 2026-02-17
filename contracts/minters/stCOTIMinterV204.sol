@@ -10,19 +10,4 @@ contract stCOTIMinterV204 is NativeMinterWithdrawal, NativeFlashLoan {
     constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstCOTI", "unstCOTI", BASE_URI) {
     }
 
-    // -----------------------------
-    // Deposit override (BLOCKED)
-    // -----------------------------
-    function deposit(address receiver)
-        public
-        payable
-        virtual
-        override
-        notDuringFlashLoan
-        returns (uint256 minted)
-    {
-        // Use NativeMinter logic
-        minted = super.deposit(receiver);
-    }
-
 }
