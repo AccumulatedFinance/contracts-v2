@@ -1,82 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/**
- * @dev Interface of the ERC20 standard as defined in the EIP.
- */
+// ERC20 interface
 interface IERC20 {
-    /**
-     * @dev Emitted when `value` tokens are moved from one account (`from`) to
-     * another (`to`).
-     *
-     * Note that `value` may be zero.
-     */
-    event Transfer(address indexed from, address indexed to, uint256 value);
-
-    /**
-     * @dev Emitted when the allowance of a `spender` for an `owner` is set by
-     * a call to {approve}. `value` is the new allowance.
-     */
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-
-    /**
-     * @dev Returns the amount of tokens in existence.
-     */
-    function totalSupply() external view returns (uint256);
-
-    /**
-     * @dev Returns the amount of tokens owned by `account`.
-     */
     function balanceOf(address account) external view returns (uint256);
-
-    /**
-     * @dev Moves `amount` tokens from the caller's account to `to`.
-     *
-     * Returns a boolean value indicating whether the operation succeeded.
-     *
-     * Emits a {Transfer} event.
-     */
-    function transfer(address to, uint256 amount) external returns (bool);
-
-    /**
-     * @dev Returns the remaining number of tokens that `spender` will be
-     * allowed to spend on behalf of `owner` through {transferFrom}. This is
-     * zero by default.
-     *
-     * This value changes when {approve} or {transferFrom} are called.
-     */
-    function allowance(address owner, address spender) external view returns (uint256);
-
-    /**
-     * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
-     *
-     * Returns a boolean value indicating whether the operation succeeded.
-     *
-     * IMPORTANT: Beware that changing an allowance with this method brings the risk
-     * that someone may use both the old and the new allowance by unfortunate
-     * transaction ordering. One possible solution to mitigate this race
-     * condition is to first reduce the spender's allowance to 0 and set the
-     * desired value afterwards:
-     * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
-     *
-     * Emits an {Approval} event.
-     */
     function approve(address spender, uint256 amount) external returns (bool);
-
-    /**
-     * @dev Moves `amount` tokens from `from` to `to` using the
-     * allowance mechanism. `amount` is then deducted from the caller's
-     * allowance.
-     *
-     * Returns a boolean value indicating whether the operation succeeded.
-     *
-     * Emits a {Transfer} event.
-     */
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (bool);
+    function mint(address to, uint256 amount) external;  
+    function burn(uint256 amount) external; 
+    function transferOwnership(address newOwner) external;
+    function totalSupply() external view returns (uint256);
 }
 
 /**
@@ -340,6 +272,9 @@ abstract contract Ownable is Context {
 }
 
 contract NativeLiquidator is IFlashLoanReceiver, Ownable {
+
+    using SafeTransferLib for IERC20;
+
     bytes32 public constant FLASHLOAN_CALLBACK_SUCCESS =
         keccak256("FLASHLOAN_CALLBACK_SUCCESS");
 
@@ -356,9 +291,10 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
     function executeFlashLoan(address user, uint256 debtSharesToCover, uint256 amount, address receiver) public onlyOwner {
         bytes memory data = abi.encode(user, debtSharesToCover);
         IMinter(minter).flashLoan(address(this), amount, data);
-        // send profits to owner
-        uint256 availableBalance = address(this).balance;
-        SafeTransferLib.safeTransferETH(receiver, availableBalance);
+        // send profits to receiver
+        IERC20 stToken = IERC20(collateral.asset());
+        uint256 availableBalance = stToken.balanceOf(address(this));
+        stToken.safeTransfer(receiver, availableBalance);
     }
 
     // flashloan contract calls this method to return tokens
@@ -371,27 +307,24 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
         require(initiator == address(this), "BadInitiator");
         require(msg.sender == address(minter), "NotMinter");
 
+        uint256 repayAmount = amount + fee;
+
         // liquidate user
         (address user, uint256 debtSharesToCover) = abi.decode(data, (address, uint256));
         lending.liquidate{value: amount}(user, debtSharesToCover);
         
         // redeem collateral
         uint256 shares = IERC20(collateral).balanceOf(address(this));
-        uint256 assets = collateral.redeem(shares, address(this), address(this));
+        collateral.redeem(shares, address(this), address(this));
 
-        address asset = collateral.asset();
+        // stToken address
+        IERC20 stToken = IERC20(collateral.asset());
 
-        // withdraw from minter
-        IERC20(asset).approve(address(minter), assets);
-        uint256 withdrawalId = minter.requestWithdrawal(assets, address(this));
-        minter.claimWithdrawal(withdrawalId, address(this));
-
-        uint256 availableBalance = address(this).balance;
-        uint256 repayAmount = amount + fee;
+        uint256 availableBalance = stToken.balanceOf(address(this));
 
         require(availableBalance >= repayAmount, "NotEnoughToRepay");
 
-        SafeTransferLib.safeTransferETH(address(minter), repayAmount);
+        stToken.burn(repayAmount);
 
         return FLASHLOAN_CALLBACK_SUCCESS;
     }
