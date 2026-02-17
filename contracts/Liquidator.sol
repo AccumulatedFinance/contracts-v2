@@ -55,6 +55,7 @@ interface IMinter {
 }
 interface ILending {
     function collateral() external view returns (IERC4626);
+    function getRequiredAmountForLiquidation(address user, uint256 debtSharesToCover) external view returns (uint256);
     function liquidate(address user, uint256 debtSharesToCover) external payable;
 }
 
@@ -288,9 +289,11 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
         collateral = lending.collateral();
     }
 
-    function executeFlashLoan(address user, uint256 debtSharesToCover, uint256 amount, address receiver) public onlyOwner {
+    function executeFlashLoan(address user, uint256 debtSharesToCover, address receiver) public onlyOwner {
         bytes memory data = abi.encode(user, debtSharesToCover);
-        IMinter(minter).flashLoan(address(this), amount, data);
+        // borrow exactly repayment amount
+        uint256 amount = lending.getRequiredAmountForLiquidation(user, debtSharesToCover);
+        minter.flashLoan(address(this), amount, data);
         // send profits to receiver
         IERC20 stToken = IERC20(collateral.asset());
         uint256 availableBalance = stToken.balanceOf(address(this));
