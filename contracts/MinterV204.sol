@@ -2495,6 +2495,8 @@ abstract contract BaseFlashLoan is BaseMinter {
 
     constructor() {
         MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|fl"));
+        // flashLoanFee cannot be lower than depositFee
+        flashLoanFee = depositFee;
     }
 
     event UpdateFlashLoanFee(uint256 newFee);
@@ -2518,6 +2520,7 @@ abstract contract BaseFlashLoan is BaseMinter {
 
     function updateFlashLoanFee(uint256 _newFee) public onlyOwner {
         require(_newFee <= MAX_FLASHLOAN_FEE, ">MaxFlashLoanFee");
+        require(_newFee >= depositFee, "<DepositFee");
         flashLoanFee = _newFee;
         emit UpdateFlashLoanFee(_newFee);
     }
@@ -2560,7 +2563,7 @@ abstract contract NativeFlashLoan is BaseFlashLoan, BaseMinterWithdrawal {
         uint256 unclaimedAfter = totalUnclaimedWithdrawals;
         uint256 stAfter = stakingToken.totalSupply();
 
-        // baseAfter - unclaimedAfter - stAfter >= baseBefore - unclaimedBefore - stBefore
+        // baseAfter - unclaimedAfter - stAfter >= baseBefore - unclaimedBefore - stBefore + fee
         require(baseAfter + unclaimedBefore + stBefore >= baseBefore + unclaimedAfter + stAfter + fee, "NotRepaid");
 
         totalFlashLoanFees += fee;
