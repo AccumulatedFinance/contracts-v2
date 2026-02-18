@@ -2533,9 +2533,19 @@ abstract contract NativeFlashLoan is BaseFlashLoan, BaseMinterWithdrawal {
         MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ":native"));
     }
 
-    // -----------------------------
-    // Flashloan
-    // -----------------------------
+    function balanceAvailable() public view override returns (uint256) {
+        uint256 availableBalance = address(this).balance;
+        uint256 balance;
+
+        if (availableBalance < totalUnclaimedWithdrawals + totalFlashLoanFees) {
+            balance = 0;
+        } else {
+            balance = availableBalance - totalUnclaimedWithdrawals - totalFlashLoanFees;
+        }
+
+        return balance;
+    }
+
     function flashLoan(
         address receiver,
         uint256 amount,
