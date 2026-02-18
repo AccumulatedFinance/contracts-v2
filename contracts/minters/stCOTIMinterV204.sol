@@ -3,11 +3,11 @@ pragma solidity ^0.8.20;
 
 import "../MinterV204.sol";
 
-contract stCOTIMinterV204 is NativeMinterWithdrawal, NativeFlashLoan {
+contract stCOTIMinterV204 is NativeMinterWithdrawalFlashLoan {
 
     string public BASE_URI = "https://api.accumulated.finance/v1/nft";
 
-    constructor(address _stakingToken) NativeMinterWithdrawal(_stakingToken, "unstCOTI", "unstCOTI", BASE_URI) {
+    constructor(address _stakingToken) NativeMinterWithdrawalFlashLoan(_stakingToken, "unstCOTI", "unstCOTI", BASE_URI) {
     }
 
 }

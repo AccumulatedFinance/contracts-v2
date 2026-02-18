@@ -2307,7 +2307,7 @@ contract NativeMinterWithdrawal is BaseMinterWithdrawal, NativeMinter {
         string memory _baseURL
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol, _baseURL) NativeMinter(_stakingToken) {}
 
-    function balanceAvailable() public view override returns (uint256) {
+    function balanceAvailable() public view virtual override returns (uint256) {
         uint256 availableBalance = address(this).balance;
         uint256 balance;
 
@@ -2353,7 +2353,7 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
         string memory _baseURL
     ) BaseMinterWithdrawal(_unstTokenName, _unstTokenSymbol, _baseURL) ERC20Minter(_baseToken, _stakingToken) {}
 
-    function balanceAvailable() public view override returns (uint256) {
+    function balanceAvailable() public view virtual override returns (uint256) {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         uint256 balance;
 
@@ -2481,7 +2481,7 @@ abstract contract ERC20Restaking is BaseRestaking {
 
 }
 
-// FlashLoan extension allows to setup flashloan fees for minter
+// BaseFlashLoan extension allows to setup flashloan fees for minter
 abstract contract BaseFlashLoan is BaseMinter {
 
     bytes32 public constant FLASHLOAN_CALLBACK_SUCCESS = keccak256("FLASHLOAN_CALLBACK_SUCCESS");
@@ -2527,13 +2527,17 @@ abstract contract BaseFlashLoan is BaseMinter {
 
 }
 
-abstract contract NativeFlashLoan is BaseFlashLoan, BaseMinterWithdrawal {
+// NativeMinterWithdrawalFlashLoan 
+contract NativeMinterWithdrawalFlashLoan is NativeMinterWithdrawal, BaseFlashLoan {
 
-    constructor() {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, ":native"));
-    }
+    constructor(
+        address _stakingToken,
+        string memory _unstTokenName,
+        string memory _unstTokenSymbol,
+        string memory _baseURL
+    ) NativeMinterWithdrawal(_stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
 
-    function balanceAvailable() public view override returns (uint256) {
+    function balanceAvailable() public view virtual override returns (uint256) {
         uint256 availableBalance = address(this).balance;
         uint256 balance;
 
@@ -2587,6 +2591,80 @@ abstract contract NativeFlashLoan is BaseFlashLoan, BaseMinterWithdrawal {
         uint256 feesToCollect = totalFlashLoanFees;
         totalFlashLoanFees = 0;
         SafeTransferLib.safeTransferETH(receiver, feesToCollect);
+        emit CollectFlashLoanFees(msg.sender, receiver, feesToCollect);
+    }
+
+}
+
+// ERC20MinterWithdrawalFlashLoan 
+contract ERC20MinterWithdrawalFlashLoan is ERC20MinterWithdrawal, BaseFlashLoan {
+
+    constructor(
+        address _baseToken,
+        address _stakingToken,
+        string memory _unstTokenName,
+        string memory _unstTokenSymbol,
+        string memory _baseURL
+    ) ERC20MinterWithdrawal(_baseToken, _stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
+
+    using SafeTransferLib for IERC20;
+
+    function balanceAvailable() public view virtual override returns (uint256) {
+        uint256 availableBalance = baseToken.balanceOf(address(this));
+        uint256 balance;
+
+        if (availableBalance < totalUnclaimedWithdrawals + totalFlashLoanFees) {
+            balance = 0;
+        } else {
+            balance = availableBalance - totalUnclaimedWithdrawals - totalFlashLoanFees;
+        }
+
+        return balance;
+    }
+
+    function flashLoan(
+        address receiver,
+        uint256 amount,
+        bytes calldata data
+    ) public virtual nonReentrantFlash returns (bool) {
+
+        uint256 baseBefore = baseToken.balanceOf(address(this));
+        uint256 unclaimedBefore = totalUnclaimedWithdrawals;
+        uint256 stBefore = stakingToken.totalSupply();
+
+        require(amount > 0, "ZeroAmount");
+        require(amount <= baseBefore, "InsufficientLiquidity");
+        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
+
+        baseToken.safeTransfer(receiver, amount);
+
+        bytes32 result = IFlashLoanReceiver(receiver).onFlashLoan(
+            msg.sender,
+            amount,
+            fee,
+            data
+        );
+
+        require(result == FLASHLOAN_CALLBACK_SUCCESS, "BadFlashLoanCallback");
+
+        uint256 baseAfter = baseToken.balanceOf(address(this));
+        uint256 unclaimedAfter = totalUnclaimedWithdrawals;
+        uint256 stAfter = stakingToken.totalSupply();
+
+        // baseAfter - unclaimedAfter - stAfter >= baseBefore - unclaimedBefore - stBefore + fee
+        require(baseAfter + unclaimedBefore + stBefore >= baseBefore + unclaimedAfter + stAfter + fee, "NotRepaid");
+
+        totalFlashLoanFees += fee;
+
+        emit UseFlashLoan(msg.sender, receiver, amount, fee);
+        return true;
+    }
+
+    function collectFlashLoanFee(address receiver) public onlyOwner {
+        require(totalFlashLoanFees > 0, "ZeroFees");
+        uint256 feesToCollect = totalFlashLoanFees;
+        totalFlashLoanFees = 0;
+        baseToken.safeTransfer(receiver, feesToCollect);
         emit CollectFlashLoanFees(msg.sender, receiver, feesToCollect);
     }
 
