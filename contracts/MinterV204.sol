@@ -2494,7 +2494,7 @@ abstract contract BaseFlashLoan is BaseMinter {
     uint256 public totalFlashLoanFees;
 
     constructor() {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|fl"));
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|flashloan"));
         // flashLoanFee cannot be lower than depositFee
         flashLoanFee = depositFee;
     }
