@@ -2599,6 +2599,8 @@ contract NativeMinterWithdrawalFlashLoan is NativeMinterWithdrawal, BaseFlashLoa
 // ERC20MinterWithdrawalFlashLoan 
 contract ERC20MinterWithdrawalFlashLoan is ERC20MinterWithdrawal, BaseFlashLoan {
 
+    using SafeTransferLib for IERC20;
+
     constructor(
         address _baseToken,
         address _stakingToken,
@@ -2606,8 +2608,6 @@ contract ERC20MinterWithdrawalFlashLoan is ERC20MinterWithdrawal, BaseFlashLoan 
         string memory _unstTokenSymbol,
         string memory _baseURL
     ) ERC20MinterWithdrawal(_baseToken, _stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
-
-    using SafeTransferLib for IERC20;
 
     function balanceAvailable() public view virtual override returns (uint256) {
         uint256 availableBalance = baseToken.balanceOf(address(this));
