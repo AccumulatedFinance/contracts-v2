@@ -2556,13 +2556,14 @@ contract NativeMinterWithdrawalFlashLoan is NativeMinterWithdrawal, BaseFlashLoa
         bytes calldata data
     ) public virtual nonReentrantFlash returns (bool) {
 
+        require(amount > 0, "ZeroAmount");
+        require(amount <= balanceAvailable(), "InsufficientLiquidity");
+
+        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
+
         uint256 baseBefore = address(this).balance;
         uint256 unclaimedBefore = totalUnclaimedWithdrawals;
         uint256 stBefore = stakingToken.totalSupply();
-
-        require(amount > 0, "ZeroAmount");
-        require(amount <= baseBefore, "InsufficientLiquidity");
-        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
 
         bytes32 result = IFlashLoanReceiver(receiver).onFlashLoan{value: amount}(
             msg.sender,
@@ -2628,13 +2629,14 @@ contract ERC20MinterWithdrawalFlashLoan is ERC20MinterWithdrawal, BaseFlashLoan 
         bytes calldata data
     ) public virtual nonReentrantFlash returns (bool) {
 
+        require(amount > 0, "ZeroAmount");
+        require(amount <= balanceAvailable(), "InsufficientLiquidity");
+
+        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
+
         uint256 baseBefore = baseToken.balanceOf(address(this));
         uint256 unclaimedBefore = totalUnclaimedWithdrawals;
         uint256 stBefore = stakingToken.totalSupply();
-
-        require(amount > 0, "ZeroAmount");
-        require(amount <= baseBefore, "InsufficientLiquidity");
-        uint256 fee = (amount * flashLoanFee) / FEE_DENOMINATOR;
 
         baseToken.safeTransfer(receiver, amount);
 
