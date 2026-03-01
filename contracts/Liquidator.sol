@@ -291,13 +291,15 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
 
     function executeFlashLoan(address user, uint256 debtSharesToCover, address receiver) public onlyOwner {
         bytes memory data = abi.encode(user, debtSharesToCover);
-        // borrow exactly repayment amount
+        // borrow exactly repayment amount via flashloan
         uint256 amount = lending.getRequiredAmountForLiquidation(user, debtSharesToCover);
         minter.flashLoan(address(this), amount, data);
         // send profits to receiver
         IERC20 stToken = IERC20(collateral.asset());
         uint256 availableBalance = stToken.balanceOf(address(this));
-        stToken.safeTransfer(receiver, availableBalance);
+        if (availableBalance > 0) {
+            stToken.safeTransfer(receiver, availableBalance);
+        }
     }
 
     // flashloan contract calls this method to return tokens
@@ -325,8 +327,8 @@ contract NativeLiquidator is IFlashLoanReceiver, Ownable {
 
         uint256 availableBalance = stToken.balanceOf(address(this));
 
+        // repay via burning stToken
         require(availableBalance >= repayAmount, "NotEnoughToRepay");
-
         stToken.burn(repayAmount);
 
         return FLASHLOAN_CALLBACK_SUCCESS;
