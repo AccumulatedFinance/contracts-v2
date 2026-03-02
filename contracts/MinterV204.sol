@@ -2587,7 +2587,7 @@ contract NativeMinterWithdrawalFlashLoan is NativeMinterWithdrawal, BaseFlashLoa
         return true;
     }
 
-    function collectFlashLoanFee(address receiver) public onlyOwner {
+    function collectFlashLoanFees(address receiver) public onlyOwner {
         require(totalFlashLoanFees > 0, "ZeroFees");
         uint256 feesToCollect = totalFlashLoanFees;
         totalFlashLoanFees = 0;
@@ -2662,7 +2662,7 @@ contract ERC20MinterWithdrawalFlashLoan is ERC20MinterWithdrawal, BaseFlashLoan 
         return true;
     }
 
-    function collectFlashLoanFee(address receiver) public onlyOwner {
+    function collectFlashLoanFees(address receiver) public onlyOwner {
         require(totalFlashLoanFees > 0, "ZeroFees");
         uint256 feesToCollect = totalFlashLoanFees;
         totalFlashLoanFees = 0;
