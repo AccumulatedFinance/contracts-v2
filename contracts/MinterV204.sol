@@ -2671,3 +2671,97 @@ contract ERC20MinterWithdrawalFlashLoan is ERC20MinterWithdrawal, BaseFlashLoan 
     }
 
 }
+
+// BaseFlashLoan extension allows to setup flashloan fees for minter
+abstract contract BaseInstantWithdrawal is BaseMinterWithdrawal {
+
+    uint256 public instantWithdrawalFee = 0;
+
+    constructor() {
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|instant"));
+        // instantWithdrawalFee cannot be lower than withdrawalFee
+        instantWithdrawalFee = withdrawalFee;
+    }
+
+    event InstantWithdrawal(address indexed caller, address indexed receiver, uint256 amount);
+    event UpdateInstantWithdrawalFee(uint256 newFee);
+
+    function previewInstantWithdrawal(uint256 amount) public view virtual returns (uint256) {
+        uint256 feeAmount = amount*instantWithdrawalFee/FEE_DENOMINATOR;
+        uint256 netAmount = amount-feeAmount;
+        return netAmount;
+    }
+
+    function updateInstantWithdrawalFee(uint256 _newFee) public onlyOwner {
+        require(_newFee <= MAX_WITHDRAWAL_FEE, ">MaxWithdrawalFee");
+        require(_newFee >= withdrawalFee, "<WithdrawalFee");
+        instantWithdrawalFee = _newFee;
+        emit UpdateInstantWithdrawalFee(_newFee);
+    }
+
+}
+
+contract NativeMinterInstantWithdrawal is NativeMinterWithdrawal, BaseInstantWithdrawal {
+
+    using SafeTransferLib for IERC20;
+
+    constructor(
+        address _stakingToken,
+        string memory _unstTokenName,
+        string memory _unstTokenSymbol,
+        string memory _baseURL
+    ) NativeMinterWithdrawal(_stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
+
+    function instantWithdrawal(uint256 amount, address receiver) public nonReentrant returns (uint256 withdrawn) {
+
+        require(amount >= minWithdrawal, "LessThanMin");
+        uint256 balance = balanceAvailable();
+        require(amount <= balance, "MoreThanBalanceAvailable");
+        bool isPreviousProcessed = (nextWithdrawalId == 1) || _withdrawalRequests[nextWithdrawalId-1].processed;
+        require(isPreviousProcessed == true, "PreviousNotProcessed");
+
+        withdrawn = previewInstantWithdrawal(amount);
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        totalWithdrawalFees = totalWithdrawalFees+amount-withdrawn;
+        stakingToken.burn(withdrawn);
+
+        SafeTransferLib.safeTransferETH(receiver, withdrawn);
+        emit InstantWithdrawal(msg.sender, receiver, amount);
+
+    }
+
+}
+
+contract ERC20MinterInstantWithdrawal is ERC20MinterWithdrawal, BaseInstantWithdrawal {
+
+    using SafeTransferLib for IERC20;
+
+    constructor(
+        address _baseToken,
+        address _stakingToken,
+        string memory _unstTokenName,
+        string memory _unstTokenSymbol,
+        string memory _baseURL
+    ) ERC20MinterWithdrawal(_baseToken, _stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
+
+    function instantWithdrawal(uint256 amount, address receiver) public nonReentrant returns (uint256 withdrawn) {
+
+        require(amount >= minWithdrawal, "LessThanMin");
+        uint256 balance = balanceAvailable();
+        require(amount <= balance, "MoreThanBalanceAvailable");
+        bool isPreviousProcessed = (nextWithdrawalId == 1) || _withdrawalRequests[nextWithdrawalId-1].processed;
+        require(isPreviousProcessed == true, "PreviousNotProcessed");
+
+        withdrawn = previewInstantWithdrawal(amount);
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        totalWithdrawalFees = totalWithdrawalFees+amount-withdrawn;
+        stakingToken.burn(withdrawn);
+
+        baseToken.safeTransfer(receiver, withdrawn);
+        emit InstantWithdrawal(msg.sender, receiver, amount);
+
+    }
+
+}
