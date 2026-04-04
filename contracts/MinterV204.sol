@@ -2387,22 +2387,22 @@ contract ERC20MinterWithdrawal is BaseMinterWithdrawal, ERC20Minter {
 
 }
 
-// BaseRestaking is BaseMinter extension with restaking features
-abstract contract BaseRestaking is BaseMinter {
+// BaseRestaking is BaseMinterRedeem extension with restaking features
+abstract contract BaseRestaking is BaseMinterRedeem {
 
     uint256 public minDepositOrigin = 1; // min deposit amount (wei)
     uint256 public depositOriginFee = 0; // possible fee to cover bridging costs
     uint256 public constant MAX_DEPOSIT_ORIGIN_FEE = 500; // max deposit origin fee 500bp (5%)
 
     constructor() {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|rs"));
+        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|restaking"));
     }
 
     event UpdateDepositOriginFee(uint256 _depositOriginFee);
     event UpdateMinDepositOrigin(uint256 _minDeposit);
 
     function previewDepositOrigin(uint256 amount) public view virtual returns (uint256) {
-        uint256 feeAmount = amount*depositFee/FEE_DENOMINATOR;
+        uint256 feeAmount = amount*depositOriginFee/FEE_DENOMINATOR;
         uint256 netAmount = amount-feeAmount;
         return netAmount;
     }
@@ -2482,7 +2482,7 @@ abstract contract ERC20Restaking is BaseRestaking {
 }
 
 // BaseFlashLoan extension allows to setup flashloan fees for minter
-abstract contract BaseFlashLoan is BaseMinter {
+abstract contract BaseFlashLoan is BaseMinterWithdrawal {
 
     bytes32 public constant FLASHLOAN_CALLBACK_SUCCESS = keccak256("FLASHLOAN_CALLBACK_SUCCESS");
 
@@ -2528,16 +2528,9 @@ abstract contract BaseFlashLoan is BaseMinter {
 }
 
 // NativeMinterWithdrawalFlashLoan 
-contract NativeMinterWithdrawalFlashLoan is NativeMinterWithdrawal, BaseFlashLoan {
+abstract contract NativeMinterWithdrawalFlashLoan is BaseFlashLoan, NativeMinterWithdrawal {
 
-    constructor(
-        address _stakingToken,
-        string memory _unstTokenName,
-        string memory _unstTokenSymbol,
-        string memory _baseURL
-    ) NativeMinterWithdrawal(_stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
-
-    function balanceAvailable() public view virtual override returns (uint256) {
+    function balanceAvailable() public view virtual override(BaseMinterWithdrawal, NativeMinterWithdrawal) returns (uint256) {
         uint256 availableBalance = address(this).balance;
         uint256 balance;
 
@@ -2598,19 +2591,11 @@ contract NativeMinterWithdrawalFlashLoan is NativeMinterWithdrawal, BaseFlashLoa
 }
 
 // ERC20MinterWithdrawalFlashLoan 
-contract ERC20MinterWithdrawalFlashLoan is ERC20MinterWithdrawal, BaseFlashLoan {
+abstract contract ERC20MinterWithdrawalFlashLoan is BaseFlashLoan, ERC20MinterWithdrawal {
 
     using SafeTransferLib for IERC20;
 
-    constructor(
-        address _baseToken,
-        address _stakingToken,
-        string memory _unstTokenName,
-        string memory _unstTokenSymbol,
-        string memory _baseURL
-    ) ERC20MinterWithdrawal(_baseToken, _stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
-
-    function balanceAvailable() public view virtual override returns (uint256) {
+    function balanceAvailable() public view virtual override(BaseMinterWithdrawal, ERC20MinterWithdrawal) returns (uint256) {
         uint256 availableBalance = baseToken.balanceOf(address(this));
         uint256 balance;
 
@@ -2701,16 +2686,9 @@ abstract contract BaseInstantWithdrawal is BaseMinterWithdrawal {
 
 }
 
-contract NativeMinterInstantWithdrawal is NativeMinterWithdrawal, BaseInstantWithdrawal {
+abstract contract NativeMinterInstantWithdrawal is BaseInstantWithdrawal, NativeMinterWithdrawal {
 
     using SafeTransferLib for IERC20;
-
-    constructor(
-        address _stakingToken,
-        string memory _unstTokenName,
-        string memory _unstTokenSymbol,
-        string memory _baseURL
-    ) NativeMinterWithdrawal(_stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
 
     function instantWithdrawal(uint256 amount, address receiver) public nonReentrant returns (uint256 withdrawn) {
 
@@ -2733,17 +2711,9 @@ contract NativeMinterInstantWithdrawal is NativeMinterWithdrawal, BaseInstantWit
 
 }
 
-contract ERC20MinterInstantWithdrawal is ERC20MinterWithdrawal, BaseInstantWithdrawal {
+abstract contract ERC20MinterInstantWithdrawal is BaseInstantWithdrawal, ERC20MinterWithdrawal {
 
     using SafeTransferLib for IERC20;
-
-    constructor(
-        address _baseToken,
-        address _stakingToken,
-        string memory _unstTokenName,
-        string memory _unstTokenSymbol,
-        string memory _baseURL
-    ) ERC20MinterWithdrawal(_baseToken, _stakingToken, _unstTokenName, _unstTokenSymbol, _baseURL) {}
 
     function instantWithdrawal(uint256 amount, address receiver) public nonReentrant returns (uint256 withdrawn) {
 
