@@ -411,7 +411,7 @@ interface StakingI {
     );
 }
 
-contract stZETAMinterV204 is NativeMinterWithdrawal, NativeMinterWithdrawalFlashLoan, NativeMinterInstantWithdrawal, StakingAdmin {
+contract stZETAMinterV204 is NativeMinterWithdrawalFlashLoan, NativeMinterInstantWithdrawal, StakingAdmin {
 
     address constant STAKING_CONTRACT = 0x0000000000000000000000000000000000000800;
     StakingI private staking = StakingI(STAKING_CONTRACT);
@@ -457,7 +457,7 @@ contract stZETAMinterV204 is NativeMinterWithdrawal, NativeMinterWithdrawalFlash
 
     // Disable withdrawals
     function withdraw(uint256 /*amount*/, address /* receiver */) public view onlyOwner override {
-        revert(string(abi.encodePacked("Withdrawals disabled")));
+        revert(string(abi.encodePacked("WithdrawalsDisabled")));
     }
 
 }
