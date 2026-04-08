@@ -1915,6 +1915,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
 
     string public constant VERSION = "v2.0.4";
     string public MINTER_TYPE = "base";
+    string public MINTER_MODULES = "";
 
     uint256 public depositFee = 0; // possible fee to cover bridging costs
     uint256 public minDeposit = 1; // min deposit amount (wei)
@@ -1937,7 +1938,7 @@ abstract contract BaseMinter is Ownable, ReentrancyGuard {
     function _beforeMint(uint256 /*amount*/) internal virtual {}
 
     function getVersion() public view virtual returns (string memory) {
-        return string(abi.encodePacked(VERSION, ":", MINTER_TYPE));
+        return string(abi.encodePacked(VERSION, ":", MINTER_TYPE, MINTER_MODULES));
     }
 
     function previewDeposit(uint256 amount) public view virtual returns (uint256) {
@@ -2395,7 +2396,7 @@ abstract contract BaseRestaking is BaseMinterRedeem {
     uint256 public constant MAX_DEPOSIT_ORIGIN_FEE = 500; // max deposit origin fee 500bp (5%)
 
     constructor() {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|restaking"));
+        MINTER_MODULES = string(abi.encodePacked(MINTER_MODULES, "|restaking"));
     }
 
     event UpdateDepositOriginFee(uint256 _depositOriginFee);
@@ -2494,7 +2495,7 @@ abstract contract BaseFlashLoan is BaseMinterWithdrawal {
     uint256 public totalFlashLoanFees;
 
     constructor() {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|flashloan"));
+        MINTER_MODULES = string(abi.encodePacked(MINTER_MODULES, "|flashloan"));
         // flashLoanFee cannot be lower than depositFee
         flashLoanFee = depositFee;
     }
@@ -2663,7 +2664,7 @@ abstract contract BaseInstantWithdrawal is BaseMinterWithdrawal {
     uint256 public instantWithdrawalFee = 0;
 
     constructor() {
-        MINTER_TYPE = string(abi.encodePacked(MINTER_TYPE, "|instant"));
+        MINTER_MODULES = string(abi.encodePacked(MINTER_MODULES, "|instant"));
         // instantWithdrawalFee cannot be lower than withdrawalFee
         instantWithdrawalFee = withdrawalFee;
     }
