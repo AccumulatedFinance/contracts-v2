@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
-import "../MinterV204.sol";
+import "../MinterV205.sol";
 import "../MinterExtStakingAdmin.sol";
 
 /// @dev Allocation represents a single allocation for an IBC fungible token transfer.
@@ -411,7 +411,7 @@ interface StakingI {
     );
 }
 
-contract stZETAMinterV204 is NativeMinterWithdrawalFlashLoan, NativeMinterInstantWithdrawal, StakingAdmin {
+contract stZETAMinterV205 is NativeMinterWithdrawalFlashLoan, NativeMinterInstantWithdrawal, StakingAdmin {
 
     address constant STAKING_CONTRACT = 0x0000000000000000000000000000000000000800;
     StakingI private staking = StakingI(STAKING_CONTRACT);
