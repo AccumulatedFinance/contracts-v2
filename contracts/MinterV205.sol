@@ -2118,6 +2118,7 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
     uint256 public totalUnclaimedWithdrawals = 0; // total unclaimed withdrawals
     uint256 public totalWithdrawalFees = 0; // total fees accumulated
     uint256 public nextWithdrawalId = 1; // counter for withdrawal IDs
+    uint256 public nextWithdrawalToProcess = 1; // counter for withdrawal processing
     string private baseURI; // base url for nft images
 
     struct WithdrawalRequest {
@@ -2269,24 +2270,32 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
         return tokenIds;
     }
 
-    function processWithdrawals(uint256[] calldata withdrawalIds) public onlyOwner {
+    function processWithdrawals(uint256 maxCount) public nonReentrant returns (uint256 processed) {
+        require(maxCount > 0, "InvalidCount");
         uint256 totalWithdrawals;
-        for (uint256 i = 0; i < withdrawalIds.length; i++) {
-            uint256 withdrawalId = withdrawalIds[i];
-            WithdrawalRequest storage request = _withdrawalRequests[withdrawalId];
-            require(request.amount > 0, "ZeroAmount");
-            require(!request.processed, "AlreadyProcessed");
-            require(!request.claimed, "AlreadyClaimed");
 
-            request.processed = true;
-            totalWithdrawals = totalWithdrawals+request.amount;
-
-            emit ProcessWithdrawal(withdrawalId);
+        uint256 i = nextWithdrawalToProcess;
+        uint256 _lastWithdrawalId = nextWithdrawalId - 1;
+        
+        while (i <= _lastWithdrawalId && processed < maxCount) {
+            WithdrawalRequest storage request = _withdrawalRequests[i];
+            if (request.amount > 0 && !request.processed && !request.claimed) {
+                request.processed = true;
+                totalWithdrawals += request.amount;
+                processed++;
+                emit ProcessWithdrawal(i);
+            }
+            unchecked {
+                i++;
+            }
         }
-        require(totalWithdrawals <= totalPendingWithdrawals, "TotalWithdrawalAmountExceeded");
-        stakingToken.burn(totalWithdrawals);
-        totalPendingWithdrawals = totalPendingWithdrawals-totalWithdrawals;
-        totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+totalWithdrawals;
+        if (totalWithdrawals > 0) {
+            require(totalWithdrawals <= totalPendingWithdrawals, "TotalWithdrawalAmountExceeded");
+            stakingToken.burn(totalWithdrawals);
+            totalPendingWithdrawals -= totalWithdrawals;
+            totalUnclaimedWithdrawals += totalWithdrawals;
+        }
+        nextWithdrawalToProcess = i;
     }
 
     function collectWithdrawalFees(address receiver) public onlyOwner {
