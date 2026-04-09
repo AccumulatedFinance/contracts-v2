@@ -2228,22 +2228,23 @@ abstract contract BaseMinterWithdrawal is BaseMinter, ERC721, ERC721Enumerable, 
 
         // check if withdrawal will be auto-processed
         uint256 balance = balanceAvailable();
-        bool isPreviousProcessed = (withdrawalId == 1) || _withdrawalRequests[withdrawalId-1].processed;
-
+        bool isNextInQueue = (withdrawalId == nextWithdrawalToProcess);
+        
         // if enough tokens & previous is processed => auto-process this withdrawal
-        if ((netAmount <= balance) && (isPreviousProcessed)) {
+        if ((netAmount <= balance) && (isNextInQueue)) {
             stakingToken.burn(netAmount);
-            totalUnclaimedWithdrawals = totalUnclaimedWithdrawals+netAmount;
+            totalUnclaimedWithdrawals += netAmount;
             _withdrawalRequests[withdrawalId] = WithdrawalRequest({
                 amount: netAmount,
                 processed: true,
                 claimed: false
             });
             emit ProcessWithdrawal(withdrawalId);
+            nextWithdrawalToProcess++;
         }
         // or withdrawal is pending
         else {
-            totalPendingWithdrawals = totalPendingWithdrawals+netAmount;
+            totalPendingWithdrawals += netAmount;
             _withdrawalRequests[withdrawalId] = WithdrawalRequest({
                 amount: netAmount,
                 processed: false,
